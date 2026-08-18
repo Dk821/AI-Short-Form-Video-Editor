@@ -98,6 +98,45 @@ const EDIT_TABS = [
   { id: 'trim', label: 'Trim Video', Icon: Scissors },
 ]
 
+const STYLE_CATEGORIES = ['All', 'Trend', 'New', 'Premium', 'Emoji', 'Speakers']
+
+const STYLE_PRESETS = [
+  { id: 'matt', name: 'Matt', category: 'New', isNew: true, isPremium: false, color: '#FFFFFF', backgroundColor: null, strokeColor: null, strokeWidth: 0, fontFamily: 'Inter', case: 'none' },
+  { id: 'jess', name: 'JESS', category: 'New', isNew: true, isPremium: true, color: '#FF5722', backgroundColor: null, strokeColor: '#000000', strokeWidth: 2, fontFamily: 'Montserrat', case: 'upper', fontStyle: 'italic' },
+  { id: 'jack', name: 'Jack', category: 'New', isNew: true, isPremium: false, color: '#FFFFFF', backgroundColor: null, strokeColor: null, strokeWidth: 0, fontFamily: 'Georgia', case: 'none' },
+  { id: 'nick', name: 'Nick', category: 'New', isNew: true, isPremium: false, color: '#FFFFFF', backgroundColor: '#334155AA', strokeColor: null, strokeWidth: 0, fontFamily: 'Inter', case: 'none' },
+  { id: 'laura', name: 'Laura', category: 'Trend', isNew: false, isPremium: false, color: '#000000', backgroundColor: '#FACC15', strokeColor: null, strokeWidth: 0, fontFamily: 'Space Grotesk', case: 'none' },
+  { id: 'kelly2', name: 'Kelly 2', category: 'Trend', isNew: false, isPremium: true, color: '#FFFFFF', backgroundColor: null, strokeColor: '#000000', strokeWidth: 3, fontFamily: 'Montserrat', case: 'none' },
+  { id: 'caleb', name: 'Caleb', category: 'Trend', isNew: false, isPremium: false, color: '#FFFFFF', backgroundColor: '#000000', strokeColor: null, strokeWidth: 0, fontFamily: 'Inter', case: 'none' },
+  { id: 'kendrick', name: 'Kendrick', category: 'Trend', isNew: false, isPremium: false, color: '#000000', backgroundColor: '#22c55e', strokeColor: null, strokeWidth: 0, fontFamily: 'Space Grotesk', case: 'none' },
+  { id: 'lewis', name: 'Lewis', category: 'Trend', isNew: false, isPremium: true, color: '#FFFFFF', backgroundColor: null, strokeColor: '#000000', strokeWidth: 2, fontFamily: 'Montserrat', case: 'none' },
+  { id: 'doug', name: 'DOUG', category: 'All', isNew: false, isPremium: false, color: '#FFFFFF', backgroundColor: null, strokeColor: '#000000', strokeWidth: 3, fontFamily: 'Space Grotesk', case: 'upper' },
+  { id: 'carlos', name: 'CARLOS', category: 'All', isNew: false, isPremium: false, color: '#FFFFFF', backgroundColor: null, strokeColor: '#000000', strokeWidth: 2, fontFamily: 'Montserrat', case: 'upper' },
+  { id: 'luke', name: 'LUKE', category: 'All', isNew: false, isPremium: false, color: '#FFFFFF', backgroundColor: null, strokeColor: '#38BDF8', strokeWidth: 2, fontFamily: 'Inter', case: 'upper' },
+  { id: 'mark', name: 'MARK', category: 'Premium', isNew: false, isPremium: true, color: '#FFFFFF', backgroundColor: null, strokeColor: '#6366F1', strokeWidth: 2, fontFamily: 'Montserrat', case: 'upper' },
+  { id: 'sara', name: 'Sara', category: 'Premium', isNew: false, isPremium: true, color: '#FFFFFF', backgroundColor: null, strokeColor: '#000000', strokeWidth: 1, fontFamily: 'Georgia', case: 'none', fontStyle: 'italic' },
+  { id: 'daniel', name: 'Daniel', category: 'Premium', isNew: false, isPremium: true, color: '#FFFFFF', backgroundColor: null, strokeColor: '#000000', strokeWidth: 2, fontFamily: 'Inter', case: 'none' },
+  { id: 'dan2', name: 'DAN 2', category: 'Trend', isNew: false, isPremium: false, color: '#000000', backgroundColor: '#FACC15', strokeColor: null, strokeWidth: 0, fontFamily: 'Space Grotesk', case: 'upper' },
+  { id: 'hormozi4', name: 'HORMOZI 4', category: 'Trend', isNew: false, isPremium: true, color: '#FACC15', backgroundColor: null, strokeColor: '#000000', strokeWidth: 3, fontFamily: 'Space Grotesk', case: 'upper' },
+  { id: 'dan', name: 'DAN', category: 'Trend', isNew: false, isPremium: false, color: '#FFFFFF', backgroundColor: null, strokeColor: '#000000', strokeWidth: 3, fontFamily: 'Montserrat', case: 'upper', fontStyle: 'italic' },
+  { id: 'devin', name: 'DEVIN', category: 'All', isNew: false, isPremium: false, color: '#FFFFFF', backgroundColor: null, strokeColor: '#000000', strokeWidth: 2, fontFamily: 'Inter', case: 'upper' },
+  { id: 'tayo', name: 'Tayo', category: 'All', isNew: false, isPremium: false, color: '#FFFFFF', backgroundColor: null, strokeColor: null, strokeWidth: 0, fontFamily: 'Inter', case: 'none' },
+  { id: 'ella', name: 'ELLA', category: 'All', isNew: false, isPremium: false, color: '#FFFFFF', backgroundColor: null, strokeColor: '#EC4899', strokeWidth: 1, fontFamily: 'Space Grotesk', case: 'upper' },
+  { id: 'tracy', name: 'TRACY', category: 'All', isNew: false, isPremium: false, color: '#FFFFFF', backgroundColor: null, strokeColor: null, strokeWidth: 0, fontFamily: 'Montserrat', case: 'upper' },
+  { id: 'hormozi1', name: 'HORMOZI 1', category: 'Trend', isNew: false, isPremium: false, color: '#FFFFFF', backgroundColor: '#00000099', strokeColor: null, strokeWidth: 0, fontFamily: 'Space Grotesk', case: 'upper' },
+  { id: 'hormozi2', name: 'HORMOZI 2', category: 'Trend', isNew: false, isPremium: false, color: '#FFFFFF', backgroundColor: '#000000CC', strokeColor: null, strokeWidth: 0, fontFamily: 'Space Grotesk', case: 'upper' },
+  { id: 'hormozi3', name: 'HORMOZI 3', category: 'Trend', isNew: false, isPremium: false, color: '#FFFFFF', backgroundColor: null, strokeColor: '#000000', strokeWidth: 3, fontFamily: 'Space Grotesk', case: 'upper' },
+  { id: 'hormozi5', name: 'Hormozi 5', category: 'Trend', isNew: false, isPremium: true, color: '#FACC15', backgroundColor: null, strokeColor: null, strokeWidth: 0, fontFamily: 'Inter', case: 'none' },
+  { id: 'william', name: 'WILLIAM', category: 'All', isNew: false, isPremium: false, color: '#000000', backgroundColor: '#FACC15', strokeColor: null, strokeWidth: 0, fontFamily: 'Space Grotesk', case: 'upper' },
+  { id: 'leon', name: 'LEON', category: 'All', isNew: false, isPremium: false, color: '#FFFFFF', backgroundColor: '#FF6B00', strokeColor: null, strokeWidth: 0, fontFamily: 'Montserrat', case: 'upper' },
+  { id: 'ali', name: 'Ali', category: 'All', isNew: false, isPremium: false, color: '#000000', backgroundColor: '#FFFFFF', strokeColor: null, strokeWidth: 0, fontFamily: 'Inter', case: 'none' },
+  { id: 'beast', name: 'BEAST', category: 'Trend', isNew: false, isPremium: false, color: '#FFFFFF', backgroundColor: null, strokeColor: '#000000', strokeWidth: 2, fontFamily: 'Space Grotesk', case: 'upper', fontStyle: 'italic' },
+  { id: 'maya', name: 'Maya', category: 'All', isNew: false, isPremium: false, color: '#FB923C', backgroundColor: null, strokeColor: '#000000', strokeWidth: 1, fontFamily: 'Georgia', case: 'none' },
+  { id: 'karl', name: 'KARL', category: 'All', isNew: false, isPremium: false, color: '#FFFFFF', backgroundColor: null, strokeColor: null, strokeWidth: 0, fontFamily: 'Oswald', case: 'upper' },
+  { id: 'iman', name: 'Iman', category: 'All', isNew: false, isPremium: false, color: '#E2E8F0', backgroundColor: null, strokeColor: null, strokeWidth: 0, fontFamily: 'Inter', case: 'none' },
+  { id: 'noah', name: 'NOAH', category: 'All', isNew: false, isPremium: false, color: '#FFFFFF', backgroundColor: null, strokeColor: '#000000', strokeWidth: 2, fontFamily: 'Space Grotesk', case: 'upper', fontStyle: 'italic' },
+]
+
 function CaptionsTab({ mode, setMode, onTabChange }) {
   const {
     mainAsset,
@@ -120,6 +159,9 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
   } = useEditorStore()
 
   // Style State
+  const [activeCategory, setActiveCategory] = useState('All')
+  const [selectedPresetId, setSelectedPresetId] = useState('doug')
+  const [showCustomStyle, setShowCustomStyle] = useState(false)
   const [themeName, setThemeName] = useState('Custom Theme')
   const [isRenamingTheme, setIsRenamingTheme] = useState(false)
   const [fontFamily, setFontFamily] = useState('Inter')
@@ -156,6 +198,7 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
   const [hiddenItems, setHiddenItems] = useState(new Set())
   const [editingItemId, setEditingItemId] = useState(null)
   const [activeOptionMenuId, setActiveOptionMenuId] = useState(null)
+  const [selectedWordInfo, setSelectedWordInfo] = useState(null)
 
   const toggleBoost = (key) => setBoostState((s) => ({ ...s, [key]: !s[key] }))
   const toggleHideItem = (id) => {
@@ -221,391 +264,435 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
     updateAllCaptions({ animation: val ? 'pop' : 'none' })
   }
 
-  // 1. CAPTION STYLE MODE
+  // 1. CAPTION STYLE MODE (Matches reference screenshot interface)
   if (mode === 'style_captions') {
+    const activePreset = STYLE_PRESETS.find((p) => p.id === selectedPresetId) || STYLE_PRESETS[9]
+    const filteredPresets = activeCategory === 'All'
+      ? STYLE_PRESETS
+      : STYLE_PRESETS.filter((p) => p.category === activeCategory || (activeCategory === 'New' && p.isNew) || (activeCategory === 'Premium' && p.isPremium))
+
+    const applyPreset = (preset) => {
+      setSelectedPresetId(preset.id)
+      setFontFamily(preset.fontFamily || 'Inter')
+      setFontColor(preset.color || '#FFFFFF')
+      setStrokeColor(preset.strokeColor || '#000000')
+      setStrokeWeight(preset.strokeWidth === 3 ? 'Large' : preset.strokeWidth === 2 ? 'Medium' : preset.strokeWidth === 1 ? 'Small' : 'None')
+      setUppercase(preset.case === 'upper')
+      
+      // Wipe away all old style attributes & apply clean preset style
+      updateAllCaptions({
+        fontFamily: preset.fontFamily || 'Inter',
+        color: preset.color || '#FFFFFF',
+        backgroundColor: preset.backgroundColor !== undefined ? preset.backgroundColor : null,
+        strokeColor: preset.strokeColor !== undefined ? preset.strokeColor : null,
+        strokeWidth: preset.strokeWidth !== undefined ? preset.strokeWidth : 0,
+        highlightColor: preset.highlightColor !== undefined ? preset.highlightColor : null,
+        case: preset.case || 'none',
+        animation: preset.animation || 'pop',
+      })
+    }
+
     return (
-      <div className="p-5 flex flex-col gap-5 select-none">
-        {/* Style Header */}
-        <div className="flex items-center justify-between">
+      <div className="flex flex-col h-full bg-dark-panel text-slate-100 font-body select-none">
+        {/* Top Header Bar */}
+        <div className="flex items-center justify-between border-b border-dark-border px-4 py-3 bg-dark-panel">
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setMode('edit_captions')}
-              className="flex h-8 w-8 items-center justify-center rounded-xl bg-dark-panel2 text-slate-300 hover:bg-dark-panel3 hover:text-white transition shadow-sm"
-              title="Back to Subtitles"
-            >
-              <ArrowLeft className="h-4 w-4" />
-            </button>
-            {isRenamingTheme ? (
-              <input
-                autoFocus
-                value={themeName}
-                onChange={(e) => setThemeName(e.target.value)}
-                onBlur={() => setIsRenamingTheme(false)}
-                onKeyDown={(e) => e.key === 'Enter' && setIsRenamingTheme(false)}
-                className="rounded-lg bg-dark-panel3 px-2 py-1 text-xs font-bold text-slate-100 outline-none shadow-inner"
-              />
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm font-black text-slate-100">{themeName}</span>
-                <button
-                  onClick={() => setIsRenamingTheme(true)}
-                  className="text-slate-500 hover:text-slate-300 p-0.5"
-                  title="Rename Theme"
-                >
-                  <Edit3 className="h-3 w-3" />
-                </button>
-              </div>
-            )}
+            <div className="inline-flex rounded-xl bg-dark-panel3 p-0.5 shadow-inner">
+              <button
+                onClick={() => {
+                  setShowCustomStyle(false)
+                  setMode('style_captions')
+                }}
+                className={`px-3.5 py-1 text-xs font-bold rounded-lg transition ${
+                  !showCustomStyle
+                    ? 'bg-primary text-white shadow-purpleGlow'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                Choose Style
+              </button>
+              <button
+                onClick={() => setMode('edit_captions')}
+                className="px-3.5 py-1 text-xs font-bold rounded-lg text-slate-400 hover:text-slate-200 transition"
+              >
+                Edit Captions
+              </button>
+            </div>
           </div>
 
           <button
-            onClick={() => {
-              if (captionItems.length) {
-                updateAllCaptions({
-                  fontFamily,
-                  fontWeight: fontWeight === 'Regular' ? 400 : fontWeight === 'Medium' ? 500 : fontWeight === 'Semibold' ? 600 : fontWeight === 'Bold' ? 700 : 900,
-                  fontSize: Math.round(fontSize * 2.3),
-                  color: fontColor,
-                  strokeColor,
-                  strokeWidth: strokeWeight === 'Large' ? 4 : strokeWeight === 'Medium' ? 2.5 : strokeWeight === 'Small' ? 1 : 0,
-                  position: positionY > 66 ? 'bottom' : positionY < 33 ? 'top' : 'center',
-                  case: uppercase ? 'upper' : 'none',
-                  animation: animation ? 'pop' : 'none',
-                })
-              } else {
-                generateCaptions('clean_bottom', displayWords)
-              }
-              setMode('edit_captions')
-            }}
-            className="rounded-xl bg-primary px-3.5 py-1.5 text-xs font-bold text-white shadow-purpleGlow hover:bg-primary-hover transition flex items-center gap-1.5"
+            onClick={() => setShowCustomStyle(!showCustomStyle)}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-1.5 text-xs font-bold transition shadow-sm ${
+              showCustomStyle
+                ? 'border-primary bg-primary text-white shadow-purpleGlow'
+                : 'border-dark-border bg-dark-panel2 text-slate-200 hover:bg-dark-panel3 hover:border-primary/50'
+            }`}
           >
-            <Sparkles className="h-3.5 w-3.5" /> Save Style
+            <Palette className="h-3.5 w-3.5" />
+            <span>Customize {activePreset.name}</span>
           </button>
         </div>
 
-        {/* 1. TYPOGRAPHY SECTION */}
-        <div className="flex flex-col gap-4 rounded-2xl bg-dark-panel2 p-4 shadow-md">
-          <h4 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Typography</h4>
-          
-          {/* Font Family & Weight */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-semibold text-slate-300 mb-1.5 block">Font Family</label>
-              <select
-                value={fontFamily}
-                onChange={(e) => handleFontFamilyChange(e.target.value)}
-                className="w-full rounded-xl bg-dark-panel3 px-3 py-2 text-xs font-bold text-slate-100 outline-none shadow-inner cursor-pointer"
-              >
-                {FONTS.map((f) => (
-                  <option key={f} value={f}>{f}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="text-xs font-semibold text-slate-300 mb-1.5 block">Font Weight</label>
-              <select
-                value={fontWeight}
-                onChange={(e) => handleFontWeightChange(e.target.value)}
-                className="w-full rounded-xl bg-dark-panel3 px-3 py-2 text-xs font-bold text-slate-100 outline-none shadow-inner cursor-pointer"
-              >
-                {WEIGHTS.map((w) => (
-                  <option key={w} value={w}>{w}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {/* Uppercase Toggle */}
-          <div className="flex items-center justify-between pt-1">
-            <span className="text-xs font-semibold text-slate-300">Uppercase Text</span>
-            <div className="inline-flex rounded-xl bg-dark-panel3 p-0.5 shadow-inner">
-              <button
-                onClick={() => handleUppercaseChange(true)}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
-                  uppercase ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400'
-                }`}
-              >
-                Yes
-              </button>
-              <button
-                onClick={() => handleUppercaseChange(false)}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
-                  !uppercase ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400'
-                }`}
-              >
-                No
-              </button>
-            </div>
-          </div>
-
-          {/* Font Size Slider */}
-          <div className="pt-1">
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-slate-300">Font Size</label>
-              <span className="rounded-lg bg-dark-panel3 px-2 py-0.5 text-xs font-bold text-slate-100 shadow-inner">
-                {fontSize}px
-              </span>
-            </div>
-            <input
-              type="range"
-              min={12}
-              max={80}
-              value={fontSize}
-              onChange={(e) => handleFontSizeChange(Number(e.target.value))}
-              className="w-full h-1.5 cursor-pointer"
-            />
-          </div>
-
-          {/* Font Color Picker */}
-          <div className="flex items-center justify-between pt-1">
-            <label className="text-xs font-semibold text-slate-300">Font Color</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="color"
-                value={fontColor}
-                onChange={(e) => handleFontColorChange(e.target.value)}
-                className="h-8 w-8 cursor-pointer rounded-xl bg-dark-panel3 p-0.5 shadow-sm shrink-0"
-              />
-              <input
-                type="text"
-                value={fontColor}
-                onChange={(e) => handleFontColorChange(e.target.value)}
-                className="w-24 rounded-xl bg-dark-panel3 px-2.5 py-1.5 text-xs font-mono font-bold text-slate-100 outline-none shadow-inner"
-              />
-            </div>
-          </div>
-
-          {/* Stroke Weight */}
-          <div className="flex items-center justify-between pt-1">
-            <label className="text-xs font-semibold text-slate-300">Stroke Weight</label>
-            <SegmentedControl
-              options={['None', 'Small', 'Medium', 'Large']}
-              value={strokeWeight}
-              onChange={handleStrokeWeightChange}
-            />
-          </div>
-
-          {/* Stroke Color */}
-          <div className="flex items-center justify-between pt-1">
-            <label className="text-xs font-semibold text-slate-300">Stroke Color</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="color"
-                value={strokeColor}
-                onChange={(e) => handleStrokeColorChange(e.target.value)}
-                className="h-8 w-8 cursor-pointer rounded-xl bg-dark-panel3 p-0.5 shadow-sm shrink-0"
-              />
-              <input
-                type="text"
-                value={strokeColor}
-                onChange={(e) => handleStrokeColorChange(e.target.value)}
-                className="w-24 rounded-xl bg-dark-panel3 px-2.5 py-1.5 text-xs font-mono font-bold text-slate-100 outline-none shadow-inner"
-              />
-            </div>
-          </div>
-
-          {/* Drop Shadow */}
-          <div className="flex items-center justify-between pt-1">
-            <label className="text-xs font-semibold text-slate-300">Drop Shadow</label>
-            <SegmentedControl
-              options={['None', 'Small', 'Medium', 'Large']}
-              value={shadow}
-              onChange={setShadow}
-            />
-          </div>
-        </div>
-
-        {/* 2. CAPTION LAYOUT & ANIMATIONS SECTION */}
-        <div className="flex flex-col gap-4 rounded-2xl bg-dark-panel2 p-4 shadow-md">
-          <h4 className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400">Caption Layout & Animation</h4>
-
-          {/* Words per caption */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-slate-300">Words per caption</label>
-              <span className="rounded-lg bg-dark-panel3 px-2 py-0.5 text-xs font-bold text-slate-100 shadow-inner">
-                {displayWords} words
-              </span>
-            </div>
-            <input
-              type="range"
-              min={1}
-              max={10}
-              value={displayWords}
-              onChange={(e) => setDisplayWords(Number(e.target.value))}
-              className="w-full h-1.5 cursor-pointer"
-            />
-          </div>
-
-          {/* Position Y */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-slate-300">Position Y</label>
-              <span className="rounded-lg bg-dark-panel3 px-2 py-0.5 text-xs font-bold text-slate-100 shadow-inner">
-                {positionY}%
-              </span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={100}
-              value={positionY}
-              onChange={(e) => handlePositionYChange(Number(e.target.value))}
-              className="w-full h-1.5 cursor-pointer"
-            />
-          </div>
-
-          {/* Text Animation */}
-          <div className="flex items-center justify-between pt-1">
-            <span className="text-xs font-semibold text-slate-300">Text Animation</span>
-            <div className="inline-flex rounded-xl bg-dark-panel3 p-0.5 shadow-inner">
-              <button
-                onClick={() => handleAnimationChange(true)}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
-                  animation ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400'
-                }`}
-              >
-                Yes
-              </button>
-              <button
-                onClick={() => handleAnimationChange(false)}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
-                  !animation ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400'
-                }`}
-              >
-                No
-              </button>
-            </div>
-          </div>
-
-          {/* Punctuation */}
-          <div className="flex items-center justify-between pt-1">
-            <span className="text-xs font-semibold text-slate-300">Punctuation</span>
-            <div className="inline-flex rounded-xl bg-dark-panel3 p-0.5 shadow-inner">
-              <button
-                onClick={() => setPunctuation(true)}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
-                  punctuation ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400'
-                }`}
-              >
-                Yes
-              </button>
-              <button
-                onClick={() => setPunctuation(false)}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
-                  !punctuation ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400'
-                }`}
-              >
-                No
-              </button>
-            </div>
-          </div>
-
-          {/* Auto Emojis */}
-          <div className="flex items-center justify-between pt-1">
-            <label className="text-xs font-semibold text-slate-300">Auto Emojis</label>
-            <SegmentedControl
-              options={['Auto', 'Top', 'None']}
-              value={autoEmoji}
-              onChange={setAutoEmoji}
-            />
-          </div>
-
-          {/* Emoji Animation */}
-          <div className="flex items-center justify-between pt-1">
-            <span className="text-xs font-semibold text-slate-300">Emoji Animation</span>
-            <div className="inline-flex rounded-xl bg-dark-panel3 p-0.5 shadow-inner">
-              <button
-                onClick={() => setEmojiAnimation(true)}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
-                  emojiAnimation ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400'
-                }`}
-              >
-                Yes
-              </button>
-              <button
-                onClick={() => setEmojiAnimation(false)}
-                className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
-                  !emojiAnimation ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400'
-                }`}
-              >
-                No
-              </button>
-            </div>
-          </div>
-
-          {/* Accent Colors Palette */}
-          <div className="pt-2">
-            <label className="text-xs font-semibold text-slate-300 mb-2 block">Theme Colors</label>
-            <div className="grid grid-cols-3 gap-2.5">
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-bold text-slate-400">Accent</span>
-                <input
-                  type="color"
-                  value={mainColor}
-                  onChange={(e) => setMainColor(e.target.value)}
-                  className="h-9 w-full cursor-pointer rounded-xl bg-dark-panel3 p-0.5 shadow-sm"
-                />
+        {/* 1. CUSTOMIZE VIEW (Shown exclusively when Customize is active) */}
+        {showCustomStyle ? (
+          <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 text-xs animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between border-b border-dark-border pb-2.5">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowCustomStyle(false)}
+                  className="flex h-7 w-7 items-center justify-center rounded-xl bg-dark-panel2 text-slate-300 hover:bg-dark-panel3 hover:text-white transition shadow-sm"
+                  title="Back to Presets"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
+                <span className="font-extrabold text-slate-100 text-sm">Customize "{activePreset.name}"</span>
               </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-bold text-slate-400">Secondary</span>
-                <input
-                  type="color"
-                  value={secondColor}
-                  onChange={(e) => setSecondColor(e.target.value)}
-                  className="h-9 w-full cursor-pointer rounded-xl bg-dark-panel3 p-0.5 shadow-sm"
-                />
+              <button
+                onClick={() => setShowCustomStyle(false)}
+                className="rounded-lg bg-dark-panel2 px-2.5 py-1 text-[11px] font-bold text-slate-300 hover:bg-dark-panel3 transition"
+              >
+                Back to Presets
+              </button>
+            </div>
+
+            {/* Typography Controls */}
+            <div className="flex flex-col gap-3 rounded-2xl bg-dark-panel2 p-4 shadow-md">
+              <span className="font-extrabold uppercase text-[10px] tracking-wider text-slate-400">Typography & Color</span>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[11px] font-bold text-slate-300 mb-1 block">Font Family</label>
+                  <select
+                    value={fontFamily}
+                    onChange={(e) => handleFontFamilyChange(e.target.value)}
+                    className="w-full rounded-xl border border-dark-border bg-dark-panel3 px-3 py-2 text-xs font-bold text-slate-100 outline-none focus:border-primary cursor-pointer"
+                  >
+                    {FONTS.map((f) => (
+                      <option key={f} value={f}>{f}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[11px] font-bold text-slate-300 mb-1 block">Font Weight</label>
+                  <select
+                    value={fontWeight}
+                    onChange={(e) => handleFontWeightChange(e.target.value)}
+                    className="w-full rounded-xl border border-dark-border bg-dark-panel3 px-3 py-2 text-xs font-bold text-slate-100 outline-none focus:border-primary cursor-pointer"
+                  >
+                    {WEIGHTS.map((w) => (
+                      <option key={w} value={w}>{w}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
-              <div className="flex flex-col gap-1">
-                <span className="text-[10px] font-bold text-slate-400">Background</span>
-                <input
-                  type="color"
-                  value={thirdColor}
-                  onChange={(e) => setThirdColor(e.target.value)}
-                  className="h-9 w-full cursor-pointer rounded-xl bg-dark-panel3 p-0.5 shadow-sm"
+
+              {/* Uppercase Toggle */}
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs font-semibold text-slate-300">Uppercase Text</span>
+                <div className="inline-flex rounded-xl bg-dark-panel3 p-0.5 shadow-inner">
+                  <button
+                    onClick={() => handleUppercaseChange(true)}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
+                      uppercase ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400'
+                    }`}
+                  >
+                    Yes
+                  </button>
+                  <button
+                    onClick={() => handleUppercaseChange(false)}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
+                      !uppercase ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400'
+                    }`}
+                  >
+                    No
+                  </button>
+                </div>
+              </div>
+
+              {/* Font Color & Stroke Color */}
+              <div className="grid grid-cols-2 gap-3 pt-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-300">Font Color</span>
+                  <input
+                    type="color"
+                    value={fontColor}
+                    onChange={(e) => handleFontColorChange(e.target.value)}
+                    className="h-8 w-8 cursor-pointer rounded-xl border border-dark-border bg-dark-panel3 p-0.5 shadow-sm"
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-slate-300">Stroke Color</span>
+                  <input
+                    type="color"
+                    value={strokeColor}
+                    onChange={(e) => handleStrokeColorChange(e.target.value)}
+                    className="h-8 w-8 cursor-pointer rounded-xl border border-dark-border bg-dark-panel3 p-0.5 shadow-sm"
+                  />
+                </div>
+              </div>
+
+              {/* Stroke Weight */}
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-xs font-semibold text-slate-300">Stroke Weight</span>
+                <SegmentedControl
+                  options={['None', 'Small', 'Medium', 'Large']}
+                  value={strokeWeight}
+                  onChange={handleStrokeWeightChange}
                 />
               </div>
             </div>
-          </div>
-        </div>
 
-        {/* Bottom Apply / Save Custom Theme Button */}
-        <div>
-          {!hasTranscript ? (
+            {/* Layout & Animation Controls */}
+            <div className="flex flex-col gap-4 rounded-2xl bg-dark-panel2 p-4 shadow-md">
+              <span className="font-extrabold uppercase text-[10px] tracking-wider text-slate-400">Layout & Animation</span>
+
+              {/* Text Animation Toggle */}
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-300">Text Animation</span>
+                <div className="inline-flex rounded-xl bg-dark-panel3 p-0.5 shadow-inner">
+                  <button
+                    onClick={() => handleAnimationChange(true)}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
+                      animation ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400'
+                    }`}
+                  >
+                    Yes
+                  </button>
+                  <button
+                    onClick={() => handleAnimationChange(false)}
+                    className={`px-3 py-1 text-xs font-bold rounded-lg transition ${
+                      !animation ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400'
+                    }`}
+                  >
+                    No
+                  </button>
+                </div>
+              </div>
+
+              {/* Words per caption */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-semibold text-slate-300">Words per caption</span>
+                  <span className="rounded-lg bg-dark-panel3 px-2 py-0.5 text-xs font-bold text-slate-100 shadow-inner">
+                    {displayWords} words
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={displayWords}
+                  onChange={(e) => setDisplayWords(Number(e.target.value))}
+                  className="w-full h-1.5 cursor-pointer accent-primary"
+                />
+              </div>
+
+              {/* Position Y */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-semibold text-slate-300">Position Y</span>
+                  <span className="rounded-lg bg-dark-panel3 px-2 py-0.5 text-xs font-bold text-slate-100 shadow-inner">
+                    {positionY}%
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={positionY}
+                  onChange={(e) => handlePositionYChange(Number(e.target.value))}
+                  className="w-full h-1.5 cursor-pointer accent-primary"
+                />
+              </div>
+            </div>
+
+            {/* Save & Back Button */}
             <button
-              onClick={() => transcribeMain()}
-              disabled={!hasMainVideo || isTranscribing}
-              className="w-full rounded-2xl bg-primary py-3 text-xs font-bold text-white shadow-purpleGlow hover:bg-primary-hover transition disabled:opacity-40"
+              onClick={() => setShowCustomStyle(false)}
+              className="w-full rounded-2xl bg-primary py-3 text-xs font-bold text-white shadow-purpleGlow hover:bg-primary-hover transition"
             >
-              {isTranscribing ? 'Transcribing Video...' : 'Transcribe Video to Apply Subtitles'}
+              Done Customizing & Return to Presets
             </button>
-          ) : (
-            <button
-              onClick={() => {
-                if (captionItems.length) {
-                  updateAllCaptions({
-                    fontFamily,
-                    fontWeight: fontWeight === 'Regular' ? 400 : fontWeight === 'Medium' ? 500 : fontWeight === 'Semibold' ? 600 : fontWeight === 'Bold' ? 700 : 900,
-                    fontSize: Math.round(fontSize * 2.3),
-                    color: fontColor,
-                    strokeColor,
-                    strokeWidth: strokeWeight === 'Large' ? 4 : strokeWeight === 'Medium' ? 2.5 : strokeWeight === 'Small' ? 1 : 0,
-                    position: positionY > 66 ? 'bottom' : positionY < 33 ? 'top' : 'center',
-                    case: uppercase ? 'upper' : 'none',
-                    animation: animation ? 'pop' : 'none',
-                  })
-                } else {
-                  generateCaptions('clean_bottom', displayWords)
-                }
-                setMode('edit_captions')
-              }}
-              disabled={isGeneratingCaptions}
-              className="w-full rounded-2xl bg-primary py-3 text-xs font-bold text-white shadow-purpleGlow hover:bg-primary-hover transition disabled:opacity-40"
-            >
-              {isGeneratingCaptions ? 'Applying Custom Captions...' : 'Apply & Save Custom Theme'}
-            </button>
-          )}
-        </div>
+          </div>
+        ) : (
+          /* 2. PRESET GALLERY VIEW (Shown exclusively when Choose Style is active) */
+          <>
+            {/* Category Filter Pills */}
+            <div className="flex items-center gap-1.5 px-4 py-2.5 overflow-x-auto border-b border-dark-border bg-dark-panel">
+              {STYLE_CATEGORIES.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => setActiveCategory(cat)}
+                  className={`rounded-lg px-3 py-1 text-xs font-bold transition shrink-0 ${
+                    activeCategory === cat
+                      ? 'bg-primary text-white shadow-purpleGlow'
+                      : 'text-slate-400 hover:bg-dark-panel2 hover:text-slate-200'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            {/* Preset Cards Grid (3 Columns) */}
+            <div className="flex-1 overflow-y-auto p-4">
+              <div className="grid grid-cols-3 gap-3">
+                {filteredPresets.map((preset) => {
+                  const isSelected = selectedPresetId === preset.id
+                  const strokeStyle = preset.strokeWidth
+                    ? `-${preset.strokeWidth}px 0 ${preset.strokeColor}, 0 ${preset.strokeWidth}px ${preset.strokeColor}, ${preset.strokeWidth}px 0 ${preset.strokeColor}, 0 -${preset.strokeWidth}px ${preset.strokeColor}`
+                    : 'none'
+
+                  return (
+                    <div
+                      key={preset.id}
+                      onClick={() => applyPreset(preset)}
+                      className={`group relative flex h-14 cursor-pointer items-center justify-center rounded-xl p-2 transition-all border ${
+                        isSelected
+                          ? 'border-primary ring-2 ring-primary/40 bg-dark-panel3 shadow-purpleGlow scale-[1.02]'
+                          : 'border-dark-border bg-dark-panel2/80 hover:bg-dark-panel2 hover:border-dark-borderLight'
+                      }`}
+                    >
+                      {/* New / Premium Badges */}
+                      {preset.isNew && (
+                        <span className="absolute top-1 left-1 rounded bg-orange-600 px-1 py-0.2 text-[9px] font-black text-white leading-none shadow-sm">
+                          New
+                        </span>
+                      )}
+                      {preset.isPremium && (
+                        <span className="absolute top-1 right-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-400/20 text-[10px] text-amber-300 font-extrabold border border-amber-400/30 shadow-sm">
+                          ⚡
+                        </span>
+                      )}
+                      {isSelected && (
+                        <span className="absolute top-1 left-1 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-white p-0.5 shadow-sm">
+                          <Edit3 className="h-2.5 w-2.5" />
+                        </span>
+                      )}
+
+                      {/* Preset Sample Text Preview */}
+                      <span
+                        className={`text-center font-black leading-none ${preset.case === 'upper' ? 'uppercase' : ''}`}
+                        style={{
+                          color: preset.color,
+                          backgroundColor: preset.backgroundColor || 'transparent',
+                          padding: preset.backgroundColor ? '2px 6px' : 0,
+                          borderRadius: preset.backgroundColor ? '4px' : 0,
+                          fontFamily: preset.fontFamily === 'Space Grotesk' ? "'Space Grotesk', sans-serif" : `'${preset.fontFamily}', sans-serif`,
+                          fontSize: '13px',
+                          textShadow: strokeStyle,
+                          fontStyle: preset.fontStyle || 'normal',
+                        }}
+                      >
+                        {preset.name}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Bottom Fixed Controls Bar (Position, Font Size, Palette Quick Controls) */}
+            <div className="border-t border-dark-border bg-dark-panel p-3.5 flex items-center justify-between gap-3 text-xs font-semibold text-slate-200 shadow-2xl">
+              {/* Caption Position */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold text-slate-400 shrink-0">Caption Position</span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    value={positionY}
+                    onChange={(e) => handlePositionYChange(Number(e.target.value))}
+                    className="w-10 rounded-lg border border-dark-border bg-dark-panel3 px-1.5 py-1 text-center font-bold text-xs text-slate-100 outline-none focus:border-primary"
+                  />
+                  <span className="text-slate-400 font-bold">%</span>
+                </div>
+                <input
+                  type="range"
+                  min={0}
+                  max={100}
+                  value={positionY}
+                  onChange={(e) => handlePositionYChange(Number(e.target.value))}
+                  className="w-16 h-1 cursor-pointer accent-primary"
+                />
+              </div>
+
+              {/* Font Size */}
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold text-slate-400 shrink-0">Font size</span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={12}
+                    max={80}
+                    value={fontSize}
+                    onChange={(e) => handleFontSizeChange(Number(e.target.value))}
+                    className="w-10 rounded-lg border border-dark-border bg-dark-panel3 px-1.5 py-1 text-center font-bold text-xs text-slate-100 outline-none focus:border-primary"
+                  />
+                  <span className="text-slate-400 font-bold">px</span>
+                </div>
+                <input
+                  type="range"
+                  min={12}
+                  max={80}
+                  value={fontSize}
+                  onChange={(e) => handleFontSizeChange(Number(e.target.value))}
+                  className="w-16 h-1 cursor-pointer accent-primary"
+                />
+              </div>
+
+              {/* Colors Swatches */}
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-col items-center">
+                  <span className="text-[9px] font-bold text-slate-400">Font</span>
+                  <input
+                    type="color"
+                    value={fontColor}
+                    onChange={(e) => handleFontColorChange(e.target.value)}
+                    className="h-6 w-6 cursor-pointer rounded border border-dark-border bg-dark-panel3 p-0 shadow-sm"
+                  />
+                </div>
+                <div className="flex flex-col items-center">
+                  <span className="text-[9px] font-bold text-slate-400">Main</span>
+                  <input
+                    type="color"
+                    value={mainColor}
+                    onChange={(e) => {
+                      setMainColor(e.target.value)
+                      updateAllCaptions({ highlightColor: e.target.value })
+                    }}
+                    className="h-6 w-6 cursor-pointer rounded border border-dark-border bg-dark-panel3 p-0 shadow-sm"
+                  />
+                </div>
+                <div className="flex flex-col items-center">
+                  <span className="text-[9px] font-bold text-slate-400">Second</span>
+                  <input
+                    type="color"
+                    value={secondColor}
+                    onChange={(e) => {
+                      setSecondColor(e.target.value)
+                      updateAllCaptions({ backgroundColor: e.target.value })
+                    }}
+                    className="h-6 w-6 cursor-pointer rounded border border-dark-border bg-dark-panel3 p-0 shadow-sm"
+                  />
+                </div>
+                <div className="flex flex-col items-center">
+                  <span className="text-[9px] font-bold text-slate-400">Third</span>
+                  <input
+                    type="color"
+                    value={thirdColor}
+                    onChange={(e) => {
+                      setThirdColor(e.target.value)
+                      handleStrokeColorChange(e.target.value)
+                    }}
+                    className="h-6 w-6 cursor-pointer rounded border border-dark-border bg-dark-panel3 p-0 shadow-sm"
+                  />
+                </div>
+              </div>
+            </div>
+          </>
+        )}
       </div>
     )
   }
@@ -928,18 +1015,36 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
                           className="flex flex-wrap items-center gap-1 leading-relaxed hover:text-primary transition"
                         >
                           {words.map((w, wIdx) => {
-                            const isHighlighted = wIdx === 0 && item.highlightColor
+                            const isSelectedWord = selectedWordInfo?.itemId === item.id && selectedWordInfo?.wordIndex === wIdx
+                            const isHighlighted = (wIdx === 0 && item.highlightColor) || isSelectedWord
                             return (
                               <span key={wIdx} className="inline-flex items-center gap-1">
                                 <span
-                                  className={
-                                    isHighlighted
-                                      ? 'rounded px-1.5 py-0.5 text-slate-900 font-extrabold shadow-sm'
-                                      : 'text-slate-100'
-                                  }
-                                  style={{
-                                    backgroundColor: isHighlighted ? item.highlightColor || '#22D3EE' : undefined,
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    selectItem(item.id)
+                                    setCurrentTime(item.start)
+                                    if (isSelectedWord) {
+                                      setSelectedWordInfo(null)
+                                    } else {
+                                      setSelectedWordInfo({ itemId: item.id, wordIndex: wIdx, word: w })
+                                    }
                                   }}
+                                  className={`cursor-pointer rounded px-1.5 py-0.5 transition-all hover:scale-105 ${
+                                    isSelectedWord
+                                      ? 'ring-2 ring-primary ring-offset-1 ring-offset-dark-panel2 bg-primary text-white font-extrabold shadow-purpleGlow scale-105'
+                                      : isHighlighted
+                                      ? 'text-slate-900 font-extrabold shadow-sm'
+                                      : 'text-slate-100 hover:bg-dark-panel3'
+                                  }`}
+                                  style={{
+                                    backgroundColor: isSelectedWord
+                                      ? undefined
+                                      : isHighlighted
+                                      ? item.highlightColor || '#22D3EE'
+                                      : undefined,
+                                  }}
+                                  title={`Click to open options for "${w}"`}
                                 >
                                   {w}
                                 </span>
@@ -952,6 +1057,201 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
                         </div>
                       )}
                     </div>
+
+                    {/* Particular Word Options Panel */}
+                    {selectedWordInfo && selectedWordInfo.itemId === item.id && (
+                      <div
+                        onClick={(e) => e.stopPropagation()}
+                        className="mt-2.5 flex flex-col gap-2.5 rounded-xl border border-primary/50 bg-dark-panel3 p-3 shadow-2xl text-xs select-none animate-in fade-in zoom-in-95 duration-150"
+                      >
+                        {/* Header with Selected Word title and close button */}
+                        <div className="flex items-center justify-between pb-1.5 border-b border-dark-border">
+                          <div className="flex items-center gap-1.5 font-bold text-slate-200">
+                            <Sparkles className="h-3.5 w-3.5 text-primary animate-pulse" />
+                            <span className="text-[11px] text-slate-400">Word Options:</span>
+                            <span className="rounded bg-primary/20 px-2 py-0.5 font-extrabold text-primary border border-primary/30 text-xs">
+                              "{selectedWordInfo.word}"
+                            </span>
+                          </div>
+                          <button
+                            onClick={() => setSelectedWordInfo(null)}
+                            className="rounded-lg p-1 text-slate-400 hover:bg-dark-panel2 hover:text-white transition"
+                            title="Close options"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+
+                        {/* 1. Quick Inline Word Edit */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold text-slate-400 shrink-0">Edit Word:</span>
+                          <input
+                            type="text"
+                            value={selectedWordInfo.word}
+                            onChange={(e) => {
+                              const newWord = e.target.value
+                              const newWords = [...words]
+                              newWords[selectedWordInfo.wordIndex] = newWord
+                              const newText = newWords.join(' ')
+                              updateItem(item.id, { text: newText })
+                              setSelectedWordInfo({ ...selectedWordInfo, word: newWord })
+                            }}
+                            className="flex-1 rounded-lg bg-dark-panel2 px-2.5 py-1 text-xs font-bold text-slate-100 outline-none border border-dark-border focus:border-primary ring-1 focus:ring-primary/40"
+                          />
+                        </div>
+
+                        {/* 2. Word Highlight Color */}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] font-bold text-slate-400">Highlight Color:</span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {[
+                              { label: 'Yellow', color: '#FACC15' },
+                              { label: 'Cyan', color: '#22D3EE' },
+                              { label: 'Pink', color: '#F472B6' },
+                              { label: 'Emerald', color: '#10B981' },
+                              { label: 'Orange', color: '#FB923C' },
+                              { label: 'Red', color: '#EF4444' },
+                              { label: 'White', color: '#FFFFFF' },
+                            ].map((c) => (
+                              <button
+                                key={c.color}
+                                onClick={() => {
+                                  updateItem(item.id, { highlightColor: c.color })
+                                }}
+                                style={{ backgroundColor: c.color }}
+                                className={`h-5 w-5 rounded-full border border-black/40 shadow-sm transition hover:scale-125 ${
+                                  item.highlightColor === c.color ? 'ring-2 ring-white ring-offset-1 ring-offset-dark-panel3 scale-110' : ''
+                                }`}
+                                title={`Set ${c.label} highlight`}
+                              />
+                            ))}
+                            <button
+                              onClick={() => updateItem(item.id, { highlightColor: null })}
+                              className="text-[10px] font-bold text-slate-400 hover:text-white underline ml-1"
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 3. Text Background Effect Color */}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-[10px] font-bold text-slate-400">Text Background Box:</span>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {[
+                              { label: 'Dark Glass', color: '#000000AA' },
+                              { label: 'Slate', color: '#0B0D12CC' },
+                              { label: 'Yellow Box', color: '#FACC15' },
+                              { label: 'Cyan Box', color: '#22D3EE' },
+                              { label: 'Pink Box', color: '#F472B6' },
+                            ].map((bg) => (
+                              <button
+                                key={bg.color}
+                                onClick={() => {
+                                  updateItem(item.id, { backgroundColor: bg.color })
+                                }}
+                                style={{ backgroundColor: bg.color }}
+                                className={`px-2 py-0.5 rounded text-[10px] font-extrabold text-white border border-white/20 shadow-sm transition hover:scale-105 ${
+                                  item.backgroundColor === bg.color ? 'ring-2 ring-primary ring-offset-1 ring-offset-dark-panel3' : ''
+                                }`}
+                                title={bg.label}
+                              >
+                                {bg.label.split(' ')[0]}
+                              </button>
+                            ))}
+                            <button
+                              onClick={() => updateItem(item.id, { backgroundColor: null })}
+                              className="text-[10px] font-bold text-slate-400 hover:text-white underline ml-1"
+                            >
+                              None
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* 4. Word Casing & Split / Delete Actions */}
+                        <div className="flex items-center gap-1.5 pt-1.5 border-t border-dark-border/80 flex-wrap">
+                          <div className="flex items-center gap-1">
+                            <button
+                              onClick={() => {
+                                const newWords = [...words]
+                                newWords[selectedWordInfo.wordIndex] = selectedWordInfo.word.toUpperCase()
+                                const newText = newWords.join(' ')
+                                updateItem(item.id, { text: newText })
+                                setSelectedWordInfo({ ...selectedWordInfo, word: newWords[selectedWordInfo.wordIndex] })
+                              }}
+                              className="rounded-lg bg-dark-panel2 px-2 py-1 text-[10px] font-extrabold text-slate-200 hover:bg-dark-panel border border-dark-border hover:border-primary/50 transition"
+                              title="UPPERCASE"
+                            >
+                              AA
+                            </button>
+                            <button
+                              onClick={() => {
+                                const newWords = [...words]
+                                newWords[selectedWordInfo.wordIndex] = selectedWordInfo.word.toLowerCase()
+                                const newText = newWords.join(' ')
+                                updateItem(item.id, { text: newText })
+                                setSelectedWordInfo({ ...selectedWordInfo, word: newWords[selectedWordInfo.wordIndex] })
+                              }}
+                              className="rounded-lg bg-dark-panel2 px-2 py-1 text-[10px] font-extrabold text-slate-200 hover:bg-dark-panel border border-dark-border hover:border-primary/50 transition"
+                              title="lowercase"
+                            >
+                              aa
+                            </button>
+                            <button
+                              onClick={() => {
+                                const newWords = [...words]
+                                const w = selectedWordInfo.word
+                                newWords[selectedWordInfo.wordIndex] = w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+                                const newText = newWords.join(' ')
+                                updateItem(item.id, { text: newText })
+                                setSelectedWordInfo({ ...selectedWordInfo, word: newWords[selectedWordInfo.wordIndex] })
+                              }}
+                              className="rounded-lg bg-dark-panel2 px-2 py-1 text-[10px] font-extrabold text-slate-200 hover:bg-dark-panel border border-dark-border hover:border-primary/50 transition"
+                              title="Title Case"
+                            >
+                              Aa
+                            </button>
+                          </div>
+
+                          {/* Split at Word */}
+                          {selectedWordInfo.wordIndex > 0 && selectedWordInfo.wordIndex < words.length && (
+                            <button
+                              onClick={() => {
+                                const firstHalf = words.slice(0, selectedWordInfo.wordIndex).join(' ')
+                                const secondHalf = words.slice(selectedWordInfo.wordIndex).join(' ')
+                                const halfDur = item.duration / 2
+                                updateItem(item.id, { text: firstHalf, duration: halfDur })
+                                addCaption(secondHalf)
+                                setSelectedWordInfo(null)
+                              }}
+                              className="flex items-center gap-1 rounded-lg bg-amber-950/40 px-2 py-1 text-[10px] font-bold text-amber-300 hover:bg-amber-900/60 border border-amber-500/40 transition ml-auto"
+                              title="Split subtitle at this word"
+                            >
+                              <Scissors className="h-3 w-3" />
+                              Split here
+                            </button>
+                          )}
+
+                          {/* Delete Word */}
+                          <button
+                            onClick={() => {
+                              const newWords = words.filter((_, idx) => idx !== selectedWordInfo.wordIndex)
+                              if (newWords.length === 0) {
+                                removeItem(item.id)
+                              } else {
+                                updateItem(item.id, { text: newWords.join(' ') })
+                              }
+                              setSelectedWordInfo(null)
+                            }}
+                            className="flex items-center gap-1 rounded-lg bg-rose-950/40 px-2 py-1 text-[10px] font-bold text-rose-300 hover:bg-rose-900/60 border border-rose-500/40 transition ml-auto"
+                            title="Remove this word"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Inter-layer Plus Merge Button (between current layer and layer below) */}

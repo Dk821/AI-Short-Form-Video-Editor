@@ -22,7 +22,7 @@ function CaptionSample({ caption, accentColor }) {
         }}
       >
         <span
-          className="rounded-lg px-2.5 py-1 text-center font-bold leading-tight shadow-md border border-dark-border"
+          className="rounded-lg px-2.5 py-1 text-center font-bold leading-tight border border-dark-border"
           style={{
             fontFamily: caption.fontFamily === 'Space Grotesk'
               ? "'Space Grotesk', sans-serif"

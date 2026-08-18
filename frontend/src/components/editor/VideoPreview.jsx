@@ -219,6 +219,7 @@ export default function VideoPreview() {
               const textShadow = strokeW
                 ? `-${strokeW}px 0 ${item.strokeColor}, 0 ${strokeW}px ${item.strokeColor}, ${strokeW}px 0 ${item.strokeColor}, 0 -${strokeW}px ${item.strokeColor}`
                 : 'none'
+              const words = (item.text || '').split(' ')
               return (
                 <div
                   key={item.id}
@@ -227,7 +228,7 @@ export default function VideoPreview() {
                 >
                   <span
                     key={`${item.id}-${item.start}`}
-                    className={`rounded-xl px-3.5 py-1 text-center font-black leading-tight shadow-md caption-anim-${item.animation || 'fade'}`}
+                    className={`rounded-xl px-3.5 py-1 text-center font-black leading-tight caption-anim-${item.animation || 'fade'}`}
                     style={{
                       color: item.color || '#E11D48',
                       fontSize: Math.max(16, (item.fontSize || 64) / 3.0),
@@ -242,7 +243,22 @@ export default function VideoPreview() {
                       letterSpacing: item.case === 'upper' ? '0.04em' : 0,
                     }}
                   >
-                    {item.text}
+                    {words.map((w, wIdx) => {
+                      const isHighlighted = wIdx === 0 && item.highlightColor
+                      return (
+                        <span
+                          key={wIdx}
+                          className={isHighlighted ? 'rounded px-1.5 py-0.5 shadow-sm' : ''}
+                          style={{
+                            backgroundColor: isHighlighted ? item.highlightColor : undefined,
+                            color: isHighlighted ? '#0F172A' : undefined,
+                            marginRight: wIdx < words.length - 1 ? '0.25em' : 0,
+                          }}
+                        >
+                          {w}
+                        </span>
+                      )
+                    })}
                   </span>
                 </div>
               )

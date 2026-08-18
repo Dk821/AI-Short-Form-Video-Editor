@@ -30,49 +30,41 @@ The core architecture follows the principle:
 │   │   │   ├── upload.py            # Video/audio asset file upload router
 │   │   │   ├── transcription.py     # Speech-to-text trigger router
 │   │   │   ├── captions.py          # Caption generation router
-   │   │   ├── auto_edit.py         # AI auto-edit router
+│   │   │   ├── auto_edit.py         # AI auto-edit router
 │   │   │   ├── templates.py         # Video template application router
 │   │   │   ├── broll.py             # Manual B-roll search & attach router
 │   │   │   └── export.py            # Background render job router & download handler
 │   │   └── templates/
 │   │       ├── schema.py            # Typed video template Pydantic schemas (CaptionStyle, BrollStyle)
-│   │       ├── registry.py          # Preset video template registry (Viral, Podcast, Shorts, etc.)
-│   │       └── library/             # JSON preset template files
+│   │       └── registry.py          # Preset video template registry (Viral, Podcast, Shorts, etc.)
 │   ├── .env                         # API keys (GROQ_API_KEY, OPENROUTER_API_KEY, GEMINI_API_KEY, PEXELS_API_KEY)
-│   ├── .gitignore                   # Backend Git ignore configurations
 │   └── requirements.txt             # Python dependencies (fastapi, uvicorn, pydantic, requests, etc.)
 │
-├── frontend/
-│   ├── src/
-│   │   ├── main.jsx                 # React entrypoint
-│   │   ├── App.jsx                  # Main router setup
-│   │   ├── pages/
-│   │   │   ├── Dashboard.jsx        # Project list, creation modal, project management dashboard
-│   │   │   └── EditorPage.jsx       # Interactive video editor workspace
-│   │   ├── components/
-│   │   │   └── editor/
-│   │   │       ├── VideoPreview.jsx # Live interactive browser canvas preview with karaoke animations
-│   │   │       ├── Timeline.jsx     # Multi-track timeline control panel
-│   │   │       ├── TimelineTrack.jsx# Individual track container (video, broll, caption, audio, zoom)
-│   │   │       ├── TimelineItem.jsx # Draggable/resizable timeline elements
-│   │   │       ├── Sidebar.jsx      # Control panel for Templates, Captions, AI Auto-Edit, B-roll, Assets
-│   │   │       ├── Toolbar.jsx      # Header actions (Project title, Export, Split, Undo/Redo)
-│   │   │       ├── BrollPicker.jsx  # Pexels B-roll search grid & thumbnail previewer
-│   │   │       ├── TemplateLibrary.jsx # Template picker modal / panel
-│   │   │       └── Scenes.jsx       # Scene breakdown view
-│   │   ├── services/
-│   │   │   └── api.js               # Centralized REST API client for backend endpoints
-│   │   └── stores/
-│   │       └── editorStore.js       # Zustand state management store for timeline, playback, selection
-│   ├── package.json                 # Frontend dependencies & scripts
-│   ├── tailwind.config.js           # Styling configuration
-│   ├── vite.config.js               # Vite build configuration
-│   └── .gitignore                   # Frontend Git ignore configurations
-│
-├── .gitignore                       # Root Git ignore rules
-├── ALGORITHM.txt                     # Mathematical & algorithmic specifications document
-├── PROJECT.md                       # Comprehensive project documentation
-└── README.md                        # Quick start & repository overview guide
+└── frontend/
+    ├── src/
+    │   ├── main.jsx                 # React entrypoint
+    │   ├── App.jsx                  # Main router setup
+    │   ├── pages/
+    │   │   ├── Dashboard.jsx        # Project list, creation modal, project management dashboard
+    │   │   └── EditorPage.jsx       # Interactive video editor workspace
+    │   ├── components/
+    │   │   └── editor/
+    │   │       ├── VideoPreview.jsx # Live interactive browser canvas preview with karaoke animations
+    │   │       ├── Timeline.jsx     # Multi-track timeline control panel
+    │   │       ├── TimelineTrack.jsx# Individual track container (video, broll, caption, audio, zoom)
+    │   │       ├── TimelineItem.jsx # Draggable/resizable timeline elements
+    │   │       ├── Sidebar.jsx      # Control panel for Templates, Captions, AI Auto-Edit, B-roll, Assets
+    │   │       ├── Toolbar.jsx      # Header actions (Project title, Export, Split, Undo/Redo)
+    │   │       ├── BrollPicker.jsx  # Pexels B-roll search grid & thumbnail previewer
+    │   │       ├── TemplateLibrary.jsx # Template picker modal / panel
+    │   │       └── Scenes.jsx       # Scene breakdown view
+    │   ├── services/
+    │   │   └── api.js               # Centralized REST API client for backend endpoints
+    │   └── stores/
+    │       └── editorStore.js       # Zustand state management store for timeline, playback, selection
+    ├── package.json                 # Frontend dependencies & scripts
+    ├── tailwind.config.js           # Styling configuration
+    └── vite.config.js               # Vite build configuration
 ```
 
 ---
