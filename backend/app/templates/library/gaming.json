@@ -1,0 +1,8 @@
+{"metadata": {"id": "gaming", "name": "Gaming", "category": "Gaming", "description": "Neon high-contrast captions built for fast gameplay footage.", "createdAt": "2026-08-17", "tags": ["gameplay", "neon"]},
+  "thumbnail": "/api/templates/thumbnails/gaming.jpg",
+  "aspectRatio": "9:16",
+  "caption": {"fontFamily": "Space Grotesk", "fontSize": 80, "fontWeight": 800, "color": "#A3E635", "highlightColor": "#FFFFFF", "strokeColor": "#000000", "strokeWidth": 3, "position": "top", "alignment": "center", "animation": "bounce", "wordsPerCaption": 2, "case": "upper"},
+  "broll": {"enabled": true, "position": "center", "size": 0.55, "transition": "cut", "frequency": "medium"},
+  "overlay": {},
+  "branding": {"primary": "#A3E635", "secondary": "#0B0D12", "highlight": "#FFFFFF"}
+}

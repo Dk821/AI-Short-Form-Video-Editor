@@ -1,0 +1,8 @@
+{"metadata": {"id": "business", "name": "Business", "category": "Business", "description": "Understated, professional captions for corporate and B2B content.", "createdAt": "2026-08-17", "tags": ["corporate", "minimal"]},
+  "thumbnail": "/api/templates/thumbnails/business.jpg",
+  "aspectRatio": "16:9",
+  "caption": {"fontFamily": "Inter", "fontSize": 48, "fontWeight": 600, "color": "#F1F5F9", "highlightColor": "#60A5FA", "strokeColor": null, "strokeWidth": 0, "backgroundColor": "#0B0D12CC", "position": "bottom", "alignment": "left", "animation": "fade", "wordsPerCaption": 6, "case": "none"},
+  "broll": {"enabled": true, "position": "bottom-left", "size": 0.4, "transition": "fade", "frequency": "low"},
+  "overlay": {"watermarkPosition": "top-right"},
+  "branding": {"primary": "#60A5FA", "secondary": "#0B0D12", "highlight": "#93C5FD"}
+}

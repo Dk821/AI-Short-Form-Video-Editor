@@ -1,0 +1,49 @@
+{
+  "metadata": {
+    "id": "bold-viral-01",
+    "name": "Bold Viral",
+    "category": "Viral",
+    "description": "Big single-word punch captions with a bold orange highlight — built to stop the scroll.",
+    "createdAt": "2026-08-18",
+    "tags": [
+      "high-energy",
+      "hook-first"
+    ]
+  },
+  "thumbnail": "/api/templates/thumbnails/bold-viral-01.png",
+  "aspectRatio": "9:16",
+  "caption": {
+    "fontFamily": "Montserrat",
+    "fontSize": 64,
+    "fontWeight": 800,
+    "color": "#FFFFFF",
+    "highlightColor": "#FF6B00",
+    "strokeColor": "#000000",
+    "strokeWidth": 3,
+    "position": "center",
+    "alignment": "center",
+    "animation": "word_by_word",
+    "wordsPerCaption": 1,
+    "case": "upper"
+  },
+  "broll": {
+    "enabled": true,
+    "position": "full-screen",
+    "size": 1.0,
+    "transition": "fade",
+    "frequency": "high"
+  },
+  "overlay": {
+    "enabled": true,
+    "blendMode": "screen",
+    "opacity": 0.85,
+    "videoUrl": "/api/templates/overlays/bold-viral-01.mp4",
+    "hookText": "Wait for it...",
+    "watermarkPosition": "bottom-right"
+  },
+  "branding": {
+    "primary": "#FF6B00",
+    "secondary": "#0B0D12",
+    "highlight": "#FDE047"
+  }
+}

@@ -1,0 +1,22 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+python-multipart==0.0.9
+pydantic==2.9.2
+
+# HTTP client for the Groq Whisper transcription and Gemini auto-edit calls
+requests==2.32.3
+
+# Milestone 2 - word-level transcription via Groq's hosted Whisper API.
+# Requires a GROQ_API_KEY environment variable (free tier at
+# https://console.groq.com) and ffmpeg on PATH (already needed for rendering).
+
+# Milestone 3 - Gemini auto-edit calls.
+# Requires a GEMINI_API_KEY environment variable (free tier at
+# https://aistudio.google.com/apikey).
+
+# Milestone 3 B-roll - Pexels stock video search + download (best-effort;
+# auto-edit works without a PEXELS_API_KEY, B-roll just stays suggestions).
+
+# Later milestone additions (see README Roadmap):
+# redis, celery        # real job queue instead of BackgroundTasks
+# boto3                # S3 / R2 object storage

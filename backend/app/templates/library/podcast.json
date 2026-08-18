@@ -1,0 +1,8 @@
+{"metadata": {"id": "podcast", "name": "Podcast", "category": "Podcast", "description": "Clean readable phrases for long-form talking-head clips.", "createdAt": "2026-08-17", "tags": ["talking-head", "clean"]},
+  "thumbnail": "/api/templates/thumbnails/podcast.jpg",
+  "aspectRatio": "9:16",
+  "caption": {"fontFamily": "Inter", "fontSize": 58, "fontWeight": 600, "color": "#FFFFFF", "highlightColor": "#5EEAD4", "strokeColor": null, "strokeWidth": 0, "backgroundColor": "#00000066", "position": "bottom", "alignment": "center", "animation": "fade", "wordsPerCaption": 5, "case": "none"},
+  "broll": {"enabled": true, "position": "top-right", "size": 0.5, "transition": "fade", "frequency": "low"},
+  "overlay": {},
+  "branding": {"primary": "#5EEAD4", "secondary": "#0B0D12", "highlight": "#22D3EE"}
+}

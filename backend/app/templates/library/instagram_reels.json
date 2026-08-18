@@ -1,0 +1,8 @@
+{"metadata": {"id": "instagram_reels", "name": "Instagram Reels", "category": "Instagram Reels", "description": "Soft rounded captions with a gradient-friendly accent, tuned for Reels.", "createdAt": "2026-08-17", "tags": ["reels", "trendy"]},
+  "thumbnail": "/api/templates/thumbnails/instagram_reels.jpg",
+  "aspectRatio": "9:16",
+  "caption": {"fontFamily": "Inter", "fontSize": 68, "fontWeight": 700, "color": "#FFFFFF", "highlightColor": "#F472B6", "strokeColor": null, "strokeWidth": 0, "backgroundColor": "#00000055", "position": "bottom", "alignment": "center", "animation": "slide_up", "wordsPerCaption": 4, "case": "none"},
+  "broll": {"enabled": true, "position": "full-screen", "size": 1.0, "transition": "fade", "frequency": "medium"},
+  "overlay": {},
+  "branding": {"primary": "#F472B6", "secondary": "#0B0D12", "highlight": "#FDE047"}
+}
