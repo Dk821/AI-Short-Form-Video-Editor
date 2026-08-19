@@ -1705,6 +1705,22 @@ export default function Sidebar({ activeTab, onTabChange }) {
   const tab = activeTab !== undefined ? activeTab : localTab
   const setTab = onTabChange || setLocalTab
   const [captionMode, setCaptionMode] = useState('dashboard') // dashboard | edit_captions | style_captions
+  const contentRef = useRef(null)
+
+  // Switching tabs should feel instant: skip the no-op click when the tab
+  // is already active (avoids a pointless re-render + captionMode reset),
+  // and don't let the previous tab's scroll offset carry into the next one
+  // — without this a panel you land on can render pre-scrolled and look
+  // like it's missing its top content.
+  function switchTab(id) {
+    if (id === tab) return
+    setTab(id)
+    setCaptionMode('dashboard')
+  }
+
+  useEffect(() => {
+    if (contentRef.current) contentRef.current.scrollTop = 0
+  }, [tab])
 
   return (
     <div className="flex h-full flex-col bg-dark-panel select-none">
@@ -1716,10 +1732,7 @@ export default function Sidebar({ activeTab, onTabChange }) {
             return (
               <button
                 key={id}
-                onClick={() => {
-                  setTab(id)
-                  setCaptionMode('dashboard')
-                }}
+                onClick={() => switchTab(id)}
                 className={`flex flex-1 items-center justify-center gap-2 py-3 text-xs font-bold transition-all border-b-2 ${
                   isActive
                     ? 'border-primary text-primary'
@@ -1734,9 +1747,14 @@ export default function Sidebar({ activeTab, onTabChange }) {
         </div>
       )}
 
-      {/* Main Tab Content */}
-      <div className="flex-1 overflow-y-auto">
-        {tab === 'captions' && (
+      {/* Main Tab Content — every panel stays mounted and is only hidden via
+          CSS (never unmounted). Switching back and forth is then a cheap
+          style toggle instead of a full remount, and each panel keeps its
+          own in-progress state (selected scene, open b-roll menu, trim
+          selection, caption sub-mode) instead of losing it every time you
+          tab away and back. */}
+      <div ref={contentRef} className="flex-1 overflow-y-auto">
+        <div className={tab === 'captions' ? '' : 'hidden'}>
           <CaptionsTab
             mode={captionMode}
             setMode={setCaptionMode}
@@ -1745,9 +1763,13 @@ export default function Sidebar({ activeTab, onTabChange }) {
               setCaptionMode('dashboard')
             }}
           />
-        )}
-        {tab === 'scenes' && <Scenes />}
-        {tab === 'trim' && <TrimTab />}
+        </div>
+        <div className={tab === 'scenes' ? '' : 'hidden'}>
+          <Scenes />
+        </div>
+        <div className={tab === 'trim' ? '' : 'hidden'}>
+          <TrimTab />
+        </div>
       </div>
     </div>
   )

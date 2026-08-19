@@ -10,7 +10,9 @@ import {
   Clock,
   Plus,
   Minus,
-  RotateCcw
+  RotateCcw,
+  Check,
+  Save
 } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
 
@@ -34,6 +36,16 @@ const REVEAL_ANIMATIONS = [
   { id: 'zoom_in', label: 'Zoom In' },
   { id: 'wipe_down', label: 'Wipe Down' },
   { id: 'bounce_in', label: 'Bounce In' },
+]
+
+// Same three options Sidebar.jsx offers for an already-placed item — kept
+// in sync so "pick it here at attach time" and "change it later on the
+// timeline" behave identically instead of the picker silently locking you
+// into whatever the active template's layout happens to be.
+const LAYOUTS = [
+  { id: 'full', label: 'Full Screen' },
+  { id: 'split_top', label: 'Top Split' },
+  { id: 'split_bottom', label: 'Bottom Split' },
 ]
 
 export default function BrollPicker() {
@@ -60,7 +72,13 @@ export default function BrollPicker() {
   const defaultDuration = brollConfig.revealDuration !== undefined ? brollConfig.revealDuration : 0.5
 
   const [selectedAnim, setSelectedAnim] = useState(defaultReveal)
+  const [selectedLayout, setSelectedLayout] = useState(defaultLayout)
   const [customDuration, setCustomDuration] = useState(2)
+  // Clicking a clip only marks it as chosen now — attaching (downloading +
+  // placing it on the timeline) is deferred to the Save button below, so
+  // the layout/reveal-animation choice always applies to the clip the user
+  // actually meant, instead of firing on the first click before those are set.
+  const [selectedResult, setSelectedResult] = useState(null)
   const debounceRef = useRef(null)
 
   useEffect(() => {
@@ -70,14 +88,20 @@ export default function BrollPicker() {
     }
   }, [brollLibraryOpen, brollTargetRange])
 
+  // A fresh open (or a new target scene) starts with nothing chosen.
+  useEffect(() => {
+    setSelectedResult(null)
+  }, [brollLibraryOpen, brollTargetRange?.start])
+
   useEffect(() => {
     if (brollConfig.revealAnimation) {
       setSelectedAnim(brollConfig.revealAnimation)
     }
-  }, [currentTemplate?.id, brollConfig.revealAnimation])
+    setSelectedLayout(brollConfig.layout || 'full')
+  }, [currentTemplate?.id, brollConfig.revealAnimation, brollConfig.layout])
 
   const attachOpts = {
-    layout: defaultLayout,
+    layout: selectedLayout,
     revealAnimation: selectedAnim,
     revealDuration: defaultDuration,
     duration: customDuration,
@@ -185,23 +209,34 @@ export default function BrollPicker() {
               </div>
             ) : (
               <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
-                {brollResults.map((r) => (
-                  <button
-                    key={r.id}
-                    disabled={isAttachingBroll}
-                    onClick={() => attachBrollResult(r, attachOpts)}
-                    className="group relative block w-full overflow-hidden rounded-2xl border border-dark-border bg-dark-panel2 hover:border-primary hover:shadow-purpleGlow transition-all duration-200 aspect-[9/16] text-left disabled:opacity-50"
-                  >
-                    <img src={r.thumbnail} alt="" className="h-full w-full object-cover group-hover:scale-105 transition duration-300 opacity-90 group-hover:opacity-100" />
-                    <span className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-md bg-dark-bg/80 backdrop-blur-md px-1.5 py-0.5 text-[10px] font-bold text-white border border-dark-border">
-                      <Clock className="h-2.5 w-2.5 text-primary" />
-                      {formatDuration(r.duration)}
-                    </span>
-                    <span className="absolute inset-0 hidden items-center justify-center bg-dark-bg/60 backdrop-blur-[1px] text-xs font-bold text-white group-hover:flex transition">
-                      + Attach Footage
-                    </span>
-                  </button>
-                ))}
+                {brollResults.map((r) => {
+                  const isSelected = selectedResult?.id === r.id
+                  return (
+                    <button
+                      key={r.id}
+                      disabled={isAttachingBroll}
+                      onClick={() => setSelectedResult(isSelected ? null : r)}
+                      className={`group relative block w-full overflow-hidden rounded-2xl border transition-all duration-200 aspect-[9/16] text-left disabled:opacity-50 ${isSelected
+                          ? 'border-primary shadow-purpleGlow ring-2 ring-primary'
+                          : 'border-dark-border bg-dark-panel2 hover:border-primary hover:shadow-purpleGlow'
+                        }`}
+                    >
+                      <img src={r.thumbnail} alt="" className="h-full w-full object-cover group-hover:scale-105 transition duration-300 opacity-90 group-hover:opacity-100" />
+                      <span className="absolute bottom-2 right-2 inline-flex items-center gap-1 rounded-md bg-dark-bg/80 backdrop-blur-md px-1.5 py-0.5 text-[10px] font-bold text-white border border-dark-border">
+                        <Clock className="h-2.5 w-2.5 text-primary" />
+                        {formatDuration(r.duration)}
+                      </span>
+                      {isSelected && (
+                        <span className="absolute top-2 left-2 flex h-6 w-6 items-center justify-center rounded-full bg-primary text-white shadow-purpleGlow">
+                          <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                        </span>
+                      )}
+                      <span className={`absolute inset-0 items-center justify-center bg-dark-bg/60 backdrop-blur-[1px] text-xs font-bold text-white transition ${isSelected ? 'hidden' : 'hidden group-hover:flex'}`}>
+                        Select Clip
+                      </span>
+                    </button>
+                  )
+                })}
               </div>
             )}
           </div>
@@ -301,6 +336,25 @@ export default function BrollPicker() {
                 </div>
               </div>
 
+              {/* Screen Layout Selector */}
+              <div className="flex flex-col gap-2 w-full mt-1 text-left">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Screen Layout</span>
+                <div className="grid grid-cols-3 gap-1.5 bg-dark-panel p-1.5 rounded-2xl border border-dark-border">
+                  {LAYOUTS.map((l) => (
+                    <button
+                      key={l.id}
+                      onClick={() => setSelectedLayout(l.id)}
+                      className={`rounded-xl px-2 py-1.5 text-[10px] font-bold transition-all text-center ${selectedLayout === l.id
+                          ? 'bg-primary text-white shadow-purpleGlow'
+                          : 'text-slate-400 hover:bg-dark-panel2 hover:text-slate-200'
+                        }`}
+                    >
+                      {l.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Reveal Animation Selector */}
               <div className="flex flex-col gap-2 w-full mt-1 text-left">
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Reveal Animation</span>
@@ -319,6 +373,31 @@ export default function BrollPicker() {
                   ))}
                 </div>
               </div>
+
+              {/* Save — commits the selected clip with the layout/animation
+                  chosen above. Nothing is downloaded or placed on the
+                  timeline until this is clicked. */}
+              <button
+                type="button"
+                disabled={!selectedResult || isAttachingBroll}
+                onClick={() => attachBrollResult(selectedResult, attachOpts)}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary py-2.5 text-xs font-extrabold uppercase tracking-wider text-white shadow-purpleGlow transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none mt-2"
+              >
+                {isAttachingBroll ? (
+                  <>
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Saving...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-3.5 w-3.5" />
+                    Save B-roll
+                  </>
+                )}
+              </button>
+              {!selectedResult && (
+                <p className="text-[10px] text-slate-500 -mt-1">Pick a clip above first</p>
+              )}
             </div>
           ) : (
             <div className="text-xs text-slate-500 my-auto">Select a scene to place footage</div>

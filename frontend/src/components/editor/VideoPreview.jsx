@@ -13,18 +13,25 @@ import {
   ChevronDown,
   Film,
   SkipBack,
-  Sliders
+  Sliders,
+  Save,
+  Loader2,
+  Check
 } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
 import { api } from '../../services/api'
 import { BrollAnimation, computeBaseVideoStyle } from './animations'
 
 export default function VideoPreview() {
-  const { timeline, assets, currentTime, isPlaying, setCurrentTime, setPlaying } = useEditorStore()
+  const {
+    timeline, assets, currentTime, isPlaying, setCurrentTime, setPlaying,
+    project, saveCover, isSavingCover, coverError,
+  } = useEditorStore()
   const videoRef = useRef(null)
   const [previewTab, setPreviewTab] = useState('brand')
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(1)
+  const [justSavedCover, setJustSavedCover] = useState(false)
 
   const videoTrack = timeline?.tracks?.find((t) => t.type === 'video')
   const mainItem = videoTrack?.items?.[0]
@@ -79,7 +86,7 @@ export default function VideoPreview() {
   const activeBroll = brollItems.find(activeAt)
   const activeSplitItem = activeBroll || overlayItems.filter(activeAt).find((it) => it.layout === 'split_top' || it.layout === 'split_bottom')
 
-  const baseStyle = computeBaseVideoStyle({ activeSplitItem, zoomScale })
+  const baseStyle = computeBaseVideoStyle({ activeSplitItem, zoomScale, currentTime })
 
   function formatTime(s) {
     const m = Math.floor(s / 60)
@@ -147,6 +154,47 @@ export default function VideoPreview() {
             style={{ height: '100%', maxHeight: 460, aspectRatio: width / height }}
           >
 
+            {/* Cover Image picker — scrubbing uses the same scrubber bar
+                below (it just moves currentTime, which this whole canvas
+                already reacts to), so "what's on screen right now" already
+                reflects the main video or whatever b-roll/split layer is
+                active at that instant. Save just freezes it. */}
+            {previewTab === 'cover' && (
+              <div className="absolute inset-x-0 top-0 z-30 flex flex-col gap-1.5 bg-gradient-to-b from-black/85 via-black/40 to-transparent p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[11px] font-bold leading-tight text-white drop-shadow">
+                    Scrub to a frame below, then save it as your cover
+                  </p>
+                  <button
+                    onClick={async () => {
+                      await saveCover(currentTime)
+                      setJustSavedCover(true)
+                      setTimeout(() => setJustSavedCover(false), 2000)
+                    }}
+                    disabled={isSavingCover}
+                    className="flex shrink-0 items-center gap-1.5 rounded-xl bg-primary px-3 py-1.5 text-[11px] font-extrabold text-white shadow-purpleGlow hover:bg-primary-hover transition disabled:opacity-50"
+                  >
+                    {isSavingCover ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : justSavedCover ? (
+                      <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                    ) : (
+                      <Save className="h-3.5 w-3.5" />
+                    )}
+                    {isSavingCover ? 'Saving...' : justSavedCover ? 'Saved' : 'Save as Cover'}
+                  </button>
+                </div>
+                {coverError && (
+                  <p className="text-[10px] font-semibold text-rose-400 drop-shadow">{coverError}</p>
+                )}
+                {project?.coverImage && (
+                  <div className="flex items-center gap-1.5 self-start rounded-lg bg-black/50 px-1.5 py-1 backdrop-blur-sm">
+                    <img src={project.coverImage} alt="Current cover" className="h-8 w-5 rounded object-cover border border-white/20" />
+                    <span className="text-[10px] font-semibold text-slate-200">Current cover</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             {mainAsset ? (
               <video
@@ -166,8 +214,17 @@ export default function VideoPreview() {
               </div>
             )}
 
-            {/* Active Template Screen Blend Video Overlay (Light leaks, Grain, Sparkles, FX) */}
-            {currentTemplate?.overlayVideoUrl && !overlayItems.some(it => activeAt(it) && it.sourceUrl === currentTemplate.overlayVideoUrl) && (
+            {/* Active Template Screen Blend Video Overlay (Light leaks, Grain, Sparkles, FX).
+                Fallback only — once apply-template has written the template's
+                burst-timed overlay items to the timeline (see routers/templates.py
+                _apply_overlay_video), those items already render below via the
+                B-roll & Overlay Track Items block and are the source of truth for
+                *when* the effect shows. This must check whether any item exists at
+                all, not whether one is active right now, or the overlay would
+                render continuously here every time playback is between bursts —
+                exactly the "runs the whole clip" behavior burst timing exists to
+                avoid. */}
+            {currentTemplate?.overlayVideoUrl && !overlayItems.some(it => it.sourceUrl === currentTemplate.overlayVideoUrl) && (
               <video
                 src={currentTemplate.overlayVideoUrl}
                 className="absolute inset-0 h-full w-full object-cover pointer-events-none z-10"

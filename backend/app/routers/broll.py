@@ -54,7 +54,7 @@ class AttachBrollBody(BaseModel):
     x: float = 40
     y: float = 40
     layout: Optional[Literal["full", "split_top", "split_bottom"]] = None
-    revealAnimation: Optional[Literal["none", "slide_down", "slide_up", "fade_in", "zoom_in", "wipe_down", "bounce_in"]] = None
+    revealAnimation: Optional[Literal["none", "slide_down", "slide_up", "slide_left", "slide_right", "fade_in", "zoom_in", "wipe_down", "bounce_in"]] = None
     revealDuration: Optional[float] = None
 
 

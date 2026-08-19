@@ -33,6 +33,10 @@ export const useEditorStore = create((set, get) => ({
   isAttachingBroll: false,
   brollError: null,
 
+  // Cover Image picker state (VideoPreview.jsx "Cover Image" tab)
+  isSavingCover: false,
+  coverError: null,
+
   // Milestone 2/3 state
   transcript: null,
   captionTemplates: [],
@@ -311,6 +315,22 @@ export const useEditorStore = create((set, get) => ({
       }))
     } catch (e) {
       set({ isAttachingBroll: false, brollError: String(e) })
+    }
+  },
+
+  // Cover Image picker: captures whatever's on screen at `time` (main video,
+  // or the active b-roll/split/overlay layer) via the backend's shared
+  // render filter graph — see routers/projects.py set_cover — and sets it
+  // as the project's dashboard thumbnail.
+  async saveCover(time) {
+    const { projectId } = get()
+    if (!projectId) return
+    set({ isSavingCover: true, coverError: null })
+    try {
+      const project = await api.setCover(projectId, time)
+      set({ project, isSavingCover: false })
+    } catch (e) {
+      set({ isSavingCover: false, coverError: String(e) })
     }
   },
 

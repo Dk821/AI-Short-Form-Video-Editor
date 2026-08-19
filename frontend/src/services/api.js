@@ -51,6 +51,12 @@ export const api = {
     }).then(j),
 
   getProject: (id) => fetch(`${BASE}/projects/${id}`).then(j),
+  setCover: (id, time) =>
+    fetch(`${BASE}/projects/${id}/cover`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ time }),
+    }).then(j),
   saveTimeline: (id, timeline) =>
     fetch(`${BASE}/projects/${id}/timeline`, {
       method: 'PUT',

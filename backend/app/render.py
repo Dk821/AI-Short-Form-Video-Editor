@@ -27,6 +27,32 @@ from typing import Dict, List
 from .models import Timeline, TimelineItem, Asset
 
 
+# Hold-phase parallax drift — mirrors frontend/src/components/editor/
+# animations/driftMotion.js exactly (same constants, same smoothstep
+# easing) so the exported video matches the live preview: once a
+# directional b-roll reveal finishes, the b-roll (and, for split layouts,
+# the main video) keeps drifting slowly in the same direction instead of
+# freezing solid the instant the reveal ends.
+_DRIFT_HOLD_SECONDS = 4.0
+_MAX_BROLL_DRIFT_PCT = 5.0
+_MAX_MAIN_DRIFT_PCT = 2.0
+# Any translate-axis reveal gets continuous b-roll drift; fade/zoom/wipe/none
+# have no direction to extend. The main video's split half only ever moves
+# vertically, so it only parallaxes for the vertical-reading subset.
+_DIRECTIONAL_DRIFT_ANIMS = {"slide_down", "slide_up", "slide_left", "slide_right", "bounce_in"}
+_VERTICAL_DRIFT_ANIMS = {"slide_down", "slide_up", "bounce_in"}
+
+
+def _drift_frac_expr(start: float, dur: float) -> str:
+    """FFmpeg expression matching driftMotion.js's driftFraction(): 0 while
+    the reveal is still playing, smoothstep-eases to 1 a few seconds after
+    it settles (zero velocity at both ends, so there's no kink where the
+    entrance ease hands off into the hold-phase drift)."""
+    held = f"max(0,(t-{start}-{dur})/{_DRIFT_HOLD_SECONDS})"
+    c = f"min(max({held},0),1)"
+    return f"({c}*{c}*(3-2*{c}))"
+
+
 def _escape_drawtext(text: str) -> str:
     return (
         text.replace("\\", "\\\\")
@@ -84,7 +110,21 @@ def probe_dimensions(path: str) -> tuple[int, int]:
         return (0, 0)
 
 
-def render_timeline(timeline: Timeline, assets: Dict[str, Asset], output_path: str) -> None:
+def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
+    """Builds everything needed to turn Timeline JSON into a single
+    composited video stream: the ffmpeg input args, the filter_complex
+    steps, and the label of the final video output.
+
+    This is the shared core of render_timeline (full export) and
+    capture_frame (single-frame project-cover capture) — pulling it out
+    means a cover thumbnail is always built from literally the same
+    filter graph as the real export, not a separate approximation that
+    could quietly drift out of sync with it.
+
+    Returns (input_args, filters, video_out, main_idx, W, H, fps, add_input,
+    audio_track, sfx_track) — render_timeline uses the trailing few to keep
+    building the audio side; capture_frame stops at video_out.
+    """
     project = timeline.project
     W, H = project.width, project.height
     fps = project.fps
@@ -122,26 +162,110 @@ def render_timeline(timeline: Timeline, assets: Dict[str, Asset], output_path: s
         if it.assetId or it.sourceUrl
     ]
 
-    has_broll_item = any(
-        it.type == "broll" or getattr(it, "layout", "full") in ("split_top", "split_bottom")
-        for it in all_overlay_items
-    )
+    # Only an item that actually claims split_top/split_bottom should push the
+    # main video into a half-height slot — a "full" layout broll/overlay is
+    # meant to float on top of the still-full-screen main video (this matches
+    # the frontend's SplitScreenLayout: only an item with layout split_top/
+    # split_bottom becomes the `activeSplitItem`).
+    split_items = [
+        it for it in all_overlay_items
+        if getattr(it, "layout", "full") in ("split_top", "split_bottom")
+    ]
 
     filters: List[str] = []
-    if has_broll_item:
+    # Base layer is always the full-frame main video. A split_top/split_bottom
+    # item shrinks it into its complementary half only for as long as that
+    # item is actually on screen (below), animated in sync with the item's
+    # own reveal — never a permanent half-height crop for the whole render.
+    filters.append(
+        f"[{main_idx}:v]scale={W}:{H}:force_original_aspect_ratio=increase,"
+        f"crop={W}:{H},fps={fps},setsar=1[base0]"
+    )
+    current = "base0"
+
+    # Reveal styles that read as vertical motion — the main video eases into
+    # its half in sync with these instead of hard-cutting to half height the
+    # instant the item goes active. Non-directional reveals fade the main
+    # half into place instead.
+    _directional_anims = {"slide_down", "slide_up", "bounce_in", "wipe_down"}
+
+    for i, split_item in enumerate(split_items):
         half_h = H // 2
-        filters.append(f"color=c=black:s={W}x{H}:r={fps}[bg0]")
+        # Main video sits in the half NOT claimed by the split item — a
+        # split_top item (top half) puts the main video at the bottom, and
+        # a split_bottom item (bottom half) puts the main video at the top.
+        # This must mirror SplitScreenLayout.jsx's computeBaseVideoStyle
+        # exactly, or preview and export disagree about where the speaker
+        # ends up (the one golden rule this module is built around).
+        main_rest_y = 0 if split_item.layout == "split_bottom" else half_h
+
+        anim = getattr(split_item, "revealAnimation", "slide_down") or "slide_down"
+        dur = max(getattr(split_item, "revealDuration", 0.5) or 0.5, 0.01)
+        s_start = split_item.start
+        s_end = s_start + split_item.duration
+        p_expr = f"min(max((t-{s_start})/{dur},0),1)"
+        ease_expr = f"sin({p_expr}*1.5707963)"
+
+        raw = f"mainhalf{i}raw"
         filters.append(
             f"[{main_idx}:v]scale={W}:{half_h}:force_original_aspect_ratio=increase,"
-            f"crop={W}:{half_h},fps={fps},setsar=1[main_half]"
+            f"crop={W}:{half_h},fps={fps},setsar=1,format=rgba[{raw}]"
         )
-        filters.append(f"[bg0][main_half]overlay=x=0:y={half_h}[base0]")
-    else:
+
+        nxt = f"mainhalf{i}"
+        if anim in _directional_anims:
+            # Wipe the properly-cropped half in from the edge that faces the
+            # split boundary, growing toward the OUTER frame edge in sync
+            # with the item's own reveal — never a moving box. base0 (always
+            # full-frame, appended above) sits underneath this the whole
+            # time, so wherever the wipe hasn't reached yet just still shows
+            # the ordinary full-frame video instead of exposing empty space
+            # — the gap a sliding/off-frame box briefly left behind before.
+            feather = max(1, int(half_h * 0.08))
+            if main_rest_y == 0:
+                # Main rests in the TOP half — its outer edge is the frame's
+                # top (Y=0); the reveal grows DOWNWARD from there.
+                edge = f"{half_h}*{ease_expr}"
+                a_expr = (
+                    f"if(lt(Y,({edge})-{feather}),255,"
+                    f"if(lt(Y,{edge}),255*(1-(Y-(({edge})-{feather}))/{feather}),0))"
+                )
+            else:
+                # Main rests in the BOTTOM half — its outer edge is the
+                # frame's bottom; the reveal grows UPWARD from there.
+                edge = f"{half_h}*(1-{ease_expr})"
+                a_expr = (
+                    f"if(lt(Y,({edge})-{feather}),0,"
+                    f"if(lt(Y,{edge}),255*(Y-(({edge})-{feather}))/{feather},255))"
+                )
+            filters.append(
+                f"color=c=white:s={W}x{half_h},format=rgba[mwipe{i}src];"
+                f"[mwipe{i}src]geq=r='255':g='255':b='255':a='{a_expr}'[mwipe{i}]"
+            )
+            filters.append(f"[{raw}][mwipe{i}]alphamerge[mainhalfwiped{i}]")
+            label = f"mainhalfwiped{i}"
+            y_expr = f"{main_rest_y}"
+
+            if anim in _VERTICAL_DRIFT_ANIMS:
+                # Hold-phase parallax: once settled (the wipe is fully open
+                # by then), keep drifting the now-revealed half a little
+                # further in the SAME direction the split item itself keeps
+                # moving (slide_down/bounce_in -> down, slide_up -> up) —
+                # synced via the same start/revealDuration/easing so main
+                # video and b-roll move together instead of one freezing.
+                sign = -1 if anim == "slide_up" else 1
+                drift_frac = _drift_frac_expr(s_start, dur)
+                y_expr = f"{main_rest_y}+({sign}*{_MAX_MAIN_DRIFT_PCT}/100*{half_h}*{drift_frac})"
+        else:
+            label = f"mainhalffade{i}"
+            filters.append(f"[{raw}]fade=t=in:st={s_start}:d={dur}:alpha=1[{label}]")
+            y_expr = f"{main_rest_y}"
+
         filters.append(
-            f"[{main_idx}:v]scale={W}:{H}:force_original_aspect_ratio=increase,"
-            f"crop={W}:{H},fps={fps},setsar=1[base0]"
+            f"[{current}][{label}]overlay=x=0:y='{y_expr}':"
+            f"enable='between(t,{s_start},{s_end})'[{nxt}]"
         )
-    current = "base0"
+        current = nxt
 
     # Zoom moments (Milestone 3 auto-edit output, or manually added).
     zoom_items: List[TimelineItem] = zoom_track.items if zoom_track else []
@@ -229,24 +353,32 @@ def render_timeline(timeline: Timeline, assets: Dict[str, Asset], output_path: s
             else:
                 label_scaled = raw_label
 
+            # Once the reveal itself finishes, directional b-rolls keep
+            # drifting slowly in the same direction they entered from
+            # instead of freezing — mirrors driftMotion.js's driftFraction()
+            # exactly (0 during the reveal, eases in a few seconds after).
+            drift_frac = _drift_frac_expr(item.start, dur) if anim in _DIRECTIONAL_DRIFT_ANIMS else None
+            drift_y_px = f"({_MAX_BROLL_DRIFT_PCT}/100*{target_h}*{drift_frac})" if drift_frac else None
+            drift_x_px = f"({_MAX_BROLL_DRIFT_PCT}/100*{W}*{drift_frac})" if drift_frac else None
+
             x_expr = "0"
             if anim == "slide_down":
                 ease_expr = f"sin({p_expr}*1.5707963)"
-                y_expr = f"{rest_y}-({target_h}*(1-{ease_expr}))"
+                y_expr = f"{rest_y}-({target_h}*(1-{ease_expr}))+{drift_y_px}"
             elif anim == "slide_up":
                 ease_expr = f"sin({p_expr}*1.5707963)"
-                y_expr = f"{rest_y}+({target_h}*(1-{ease_expr}))"
+                y_expr = f"{rest_y}+({target_h}*(1-{ease_expr}))-{drift_y_px}"
             elif anim == "slide_left":
                 ease_expr = f"sin({p_expr}*1.5707963)"
                 y_expr = f"{rest_y}"
-                x_expr = f"{W}*(1-{ease_expr})"
+                x_expr = f"{W}*(1-{ease_expr})-{drift_x_px}"
             elif anim == "slide_right":
                 ease_expr = f"sin({p_expr}*1.5707963)"
                 y_expr = f"{rest_y}"
-                x_expr = f"-{W}*(1-{ease_expr})"
+                x_expr = f"-{W}*(1-{ease_expr})+{drift_x_px}"
             elif anim == "bounce_in":
                 bounce_p = f"if(lt({p_expr},0.7), ({p_expr}/0.7)*1.15, 1.15 - (({p_expr}-0.7)/0.3)*0.15)"
-                y_expr = f"{rest_y}-({target_h}*(1-{bounce_p}))"
+                y_expr = f"{rest_y}-({target_h}*(1-{bounce_p}))+{drift_y_px}"
             else:
                 y_expr = f"{rest_y}"
 
@@ -333,9 +465,15 @@ def render_timeline(timeline: Timeline, assets: Dict[str, Asset], output_path: s
 
     video_out = current
 
+    return input_args, filters, video_out, main_idx, W, H, fps, add_input, audio_track, sfx_track
+
+
+def render_timeline(timeline: Timeline, assets: Dict[str, Asset], output_path: str) -> None:
+    (input_args, filters, video_out, main_idx, W, H, fps,
+     add_input, audio_track, sfx_track) = _build_video_filtergraph(timeline, assets)
+
     # Audio: main clip audio + audio track + sfx track, mixed.
     audio_labels = [f"{main_idx}:a"]
-    extra_audio_inputs = []
     for item in (audio_track.items if audio_track else []) + (sfx_track.items if sfx_track else []):
         asset = assets[item.assetId]
         idx = add_input(asset.url, ["-ss", str(item.sourceStart), "-t", str(item.duration)])
@@ -365,3 +503,33 @@ def render_timeline(timeline: Timeline, assets: Dict[str, Asset], output_path: s
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(f"ffmpeg failed:\n{' '.join(shlex.quote(c) for c in cmd)}\n\n{proc.stderr[-4000:]}")
+
+
+def capture_frame(timeline: Timeline, assets: Dict[str, Asset], at_time: float, output_path: str) -> None:
+    """Grabs a single composited frame at `at_time` (seconds, project-
+    timeline time) and writes it as a still image — used for the project
+    cover picker. Reuses the exact same filter graph as render_timeline,
+    so the captured frame always matches what an actual export would show
+    at that moment — main video alone, or the main video plus whatever
+    b-roll/split/overlay layer is active there — never a separate
+    approximation that could drift from the real render.
+
+    `-ss` here is an *output* seek (it comes after -filter_complex/-map,
+    not attached to a specific -i), so it applies to the fully composited
+    stream: ffmpeg decodes and filters normally from the timeline's start
+    and only starts emitting frames once the composited output reaches
+    `at_time`, then -frames:v 1 grabs the first one there.
+    """
+    input_args, filters, video_out, main_idx, W, H, fps, add_input, _, _ = _build_video_filtergraph(timeline, assets)
+    filter_complex = ";".join(filters)
+    at_time = max(0.0, at_time)
+
+    cmd = ["ffmpeg", "-y", *input_args,
+           "-filter_complex", filter_complex,
+           "-map", f"[{video_out}]",
+           "-ss", str(at_time), "-frames:v", "1",
+           output_path]
+
+    proc = subprocess.run(cmd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"ffmpeg cover capture failed:\n{' '.join(shlex.quote(c) for c in cmd)}\n\n{proc.stderr[-4000:]}")

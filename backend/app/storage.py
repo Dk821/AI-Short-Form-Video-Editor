@@ -47,3 +47,14 @@ def asset_path_for(filename: str) -> str:
 
 def render_path_for(filename: str) -> str:
     return os.path.join(RENDERS_DIR, filename)
+
+
+def cover_path_for(project_id: str) -> tuple[str, str]:
+    """Absolute path to write a project's cover JPEG to, plus the
+    browser-servable URL. Lives in UPLOADS_DIR (already mounted at
+    /api/uploads) rather than RENDERS_DIR so it's directly usable as an
+    <img src>, not just downloadable — same contract as an asset's
+    servedPath. One file per project (fixed name, overwritten on every
+    save), so re-picking a cover never leaves the old one behind."""
+    filename = f"cover_{project_id}.jpg"
+    return os.path.join(UPLOADS_DIR, filename), f"/api/uploads/{filename}"

@@ -114,6 +114,7 @@ class Project(BaseModel):
     brollStyle: Optional[dict] = None
     zoomStyle: Optional[dict] = None
     createdAt: Optional[str] = None
+    coverImage: Optional[str] = None       # browser-servable URL of the saved cover frame (see routers/projects.py set_cover)
 
 
 class ExportJob(BaseModel):

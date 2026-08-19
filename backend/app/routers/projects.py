@@ -5,7 +5,9 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from .. import db
-from ..models import Project, Timeline, ProjectMeta
+from ..models import Project, Timeline, ProjectMeta, Asset
+from ..render import capture_frame
+from ..storage import cover_path_for
 from ..templates import get_template
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
@@ -91,5 +93,38 @@ def save_timeline(project_id: str, timeline: Timeline):
     if not project:
         raise HTTPException(404, "Project not found")
     project["timeline"] = timeline.model_dump()
+    db.put_project(project_id, project)
+    return project
+
+
+class SetCoverBody(BaseModel):
+    time: float  # seconds, position on the timeline to capture as the cover
+
+
+@router.post("/{project_id}/cover")
+def set_cover(project_id: str, body: SetCoverBody):
+    """Cover Image picker (VideoPreview.jsx): captures whatever is actually
+    on screen at `time` — the main video, or the b-roll/split/overlay layer
+    active there — as a still JPEG and sets it as the project's dashboard
+    thumbnail. Reuses render.capture_frame, which shares its filter graph
+    with the real export, so the saved cover is guaranteed to match what
+    the live preview showed when the user clicked Save, not a separate
+    best-effort screenshot."""
+    project = db.get_project(project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+
+    timeline = Timeline(**project["timeline"])
+    assets = {a["id"]: Asset(**a) for a in project["assets"]}
+    output_path, served_path = cover_path_for(project_id)
+
+    try:
+        capture_frame(timeline, assets, body.time, output_path)
+    except (ValueError, KeyError) as e:
+        raise HTTPException(400, f"Could not capture that frame: {e}")
+    except RuntimeError as e:
+        raise HTTPException(500, str(e))
+
+    project["coverImage"] = served_path
     db.put_project(project_id, project)
     return project

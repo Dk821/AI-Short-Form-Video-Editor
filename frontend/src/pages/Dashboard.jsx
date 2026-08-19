@@ -107,7 +107,9 @@ function ProjectCard({ project, onOpen, onRename, onDelete }) {
       className="group relative flex cursor-pointer flex-col rounded-2xl bg-dark-panel shadow-xl shadow-black/40 transition-all duration-200 hover:-translate-y-1.5 hover:bg-dark-panel2 hover:shadow-2xl hover:shadow-primary/25"
     >
       <div className="relative aspect-[9/14] w-full overflow-hidden rounded-t-2xl bg-dark-panel2">
-        {mainAsset ? (
+        {project.coverImage ? (
+          <img src={project.coverImage} alt="" className="h-full w-full object-cover opacity-90 group-hover:opacity-100 transition duration-300" />
+        ) : mainAsset ? (
           <video src={api.assetUrl(mainAsset)} className="h-full w-full object-cover opacity-90 group-hover:opacity-100 transition duration-300" muted preload="metadata" />
         ) : (
           <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-slate-500">

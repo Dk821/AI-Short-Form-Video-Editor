@@ -2,7 +2,7 @@
   "id": "split_reaction",
   "name": "Split Reaction",
   "category": "TikTok",
-  "description": "Duet-style split-screen video with animated slide-down reaction B-roll.",
+  "description": "Talking-head split-screen video with a b-roll clip that slides down to fill the top half while the speaker keeps the bottom half.",
   "tags": ["duet", "split-screen", "reaction"],
   "aspectRatio": "9:16",
   "accentColor": "#EC4899",
@@ -25,13 +25,13 @@
   },
   "broll": {
     "enabled": true,
-    "position": "split_bottom",
+    "position": "split_top",
     "defaultScale": 1.0,
     "transitionMs": 500,
     "frequency": "medium",
-    "layout": "split_bottom",
+    "layout": "split_top",
     "revealAnimation": "slide_down",
-    "revealDuration": 0.5
+    "revealDuration": 1.0
   },
   "overlay": {
     "enabled": false

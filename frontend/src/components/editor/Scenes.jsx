@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useEditorStore } from '../../stores/editorStore'
 import {
   Wand2,
@@ -11,7 +11,31 @@ import {
   MoreHorizontal,
   Sparkles,
   Video,
+  Trash2,
+  ArrowLeft,
+  ChevronRight,
+  Check,
 } from 'lucide-react'
+
+// Kept in sync with BrollPicker.jsx's attach-time options so editing an
+// already-placed b-roll's transition offers the exact same choices.
+const REVEAL_ANIMATIONS = [
+  { id: 'none', label: 'None' },
+  { id: 'slide_down', label: 'Slide Down' },
+  { id: 'slide_up', label: 'Slide Up' },
+  { id: 'slide_left', label: 'Slide Left' },
+  { id: 'slide_right', label: 'Slide Right' },
+  { id: 'fade_in', label: 'Fade In' },
+  { id: 'zoom_in', label: 'Zoom In' },
+  { id: 'wipe_down', label: 'Wipe Down' },
+  { id: 'bounce_in', label: 'Bounce In' },
+]
+
+const LAYOUTS = [
+  { id: 'full', label: 'Full Screen' },
+  { id: 'split_top', label: 'Top Split' },
+  { id: 'split_bottom', label: 'Bottom Split' },
+]
 
 export default function Scenes() {
   const {
@@ -27,11 +51,30 @@ export default function Scenes() {
     transcript,
     addCaption,
     setCurrentTime,
+    updateItem,
+    removeItem,
   } = useEditorStore()
 
   const sceneList = scenes()
   const hasTranscript = !!transcript?.words?.length
   const [activeSceneId, setActiveSceneId] = useState(null)
+
+  // Dropdown shown when clicking an already-attached b-roll indicator:
+  // 'menu' = the 3-option list, 'transition' = the inline animation/layout editor.
+  const [brollMenuSceneId, setBrollMenuSceneId] = useState(null)
+  const [brollMenuView, setBrollMenuView] = useState('menu')
+  const brollMenuRef = useRef(null)
+
+  useEffect(() => {
+    if (!brollMenuSceneId) return
+    function handleClickOutside(e) {
+      if (brollMenuRef.current && !brollMenuRef.current.contains(e.target)) {
+        setBrollMenuSceneId(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [brollMenuSceneId])
 
   if (!hasTranscript) {
     return (
@@ -132,29 +175,55 @@ export default function Scenes() {
                 {/* Left thumbnail & control column */}
                 <div className="flex flex-col items-center justify-between gap-1.5 border-r border-dark-border px-2 py-3 w-[68px] shrink-0 bg-dark-panel2/40">
                   {/* Thumbnail / Add B-roll placeholder */}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      openBrollLibraryForScene(scene)
-                    }}
-                    className={`flex w-full aspect-square items-center justify-center rounded-xl border transition shadow-sm relative ${
-                      broll.length
-                        ? 'bg-primary/20 border-primary/50 text-primary shadow-purpleGlow'
-                        : 'bg-dark-panel3 border-dark-border text-slate-400 hover:border-primary/40 hover:text-slate-200'
-                    }`}
-                    title={broll.length ? `${broll.length} B-roll attached` : 'Add B-roll'}
-                  >
-                    {broll.length ? (
-                      <Film className="h-4 w-4 text-primary" />
-                    ) : (
-                      <Plus className="h-4 w-4" />
+                  <div className="relative w-full">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (broll.length) {
+                          setBrollMenuView('menu')
+                          setBrollMenuSceneId((cur) => (cur === scene.id ? null : scene.id))
+                        } else {
+                          openBrollLibraryForScene(scene)
+                        }
+                      }}
+                      className={`flex w-full aspect-square items-center justify-center rounded-xl border transition shadow-sm relative ${
+                        broll.length
+                          ? 'bg-primary/20 border-primary/50 text-primary shadow-purpleGlow'
+                          : 'bg-dark-panel3 border-dark-border text-slate-400 hover:border-primary/40 hover:text-slate-200'
+                      }`}
+                      title={broll.length ? `${broll.length} B-roll attached — click to edit` : 'Add B-roll'}
+                    >
+                      {broll.length ? (
+                        <Film className="h-4 w-4 text-primary" />
+                      ) : (
+                        <Plus className="h-4 w-4" />
+                      )}
+                      {broll.length > 0 && (
+                        <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-primary text-[9px] font-black text-white flex items-center justify-center leading-none shadow-sm">
+                          {broll.length}
+                        </span>
+                      )}
+                    </button>
+
+                    {brollMenuSceneId === scene.id && (
+                      <BrollOptionsMenu
+                        menuRef={brollMenuRef}
+                        view={brollMenuView}
+                        setView={setBrollMenuView}
+                        item={broll[0]}
+                        onAddNew={() => {
+                          setBrollMenuSceneId(null)
+                          openBrollLibraryForScene(scene)
+                        }}
+                        onDelete={() => {
+                          broll.forEach((it) => removeItem(it.id))
+                          setBrollMenuSceneId(null)
+                        }}
+                        onUpdate={(patch) => broll[0] && updateItem(broll[0].id, patch)}
+                        onClose={() => setBrollMenuSceneId(null)}
+                      />
                     )}
-                    {broll.length > 0 && (
-                      <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-primary text-[9px] font-black text-white flex items-center justify-center leading-none shadow-sm">
-                        {broll.length}
-                      </span>
-                    )}
-                  </button>
+                  </div>
 
                   {/* Zoom toggle button */}
                   <button
@@ -220,6 +289,135 @@ export default function Scenes() {
 
         <div className="h-6" />
       </div>
+    </div>
+  )
+}
+
+// Floating popup shown when clicking an already-attached b-roll indicator.
+// Mirrors the activeOptionMenuId popup convention used elsewhere in the
+// editor (absolute positioning, stopPropagation, fade/zoom-in entrance,
+// dark-panel/dark-border/shadow-2xl styling) — with click-outside-to-close
+// added on top via the parent's mousedown listener.
+function BrollOptionsMenu({ menuRef, view, setView, item, onAddNew, onDelete, onUpdate, onClose }) {
+  return (
+    <div
+      ref={menuRef}
+      onClick={(e) => e.stopPropagation()}
+      className="absolute left-full top-0 ml-2 z-50 w-64 rounded-2xl border border-dark-border bg-dark-panel p-1.5 shadow-2xl shadow-black/60 animate-in fade-in zoom-in-95 duration-150"
+    >
+      {view === 'menu' ? (
+        <div className="flex flex-col gap-0.5">
+          <button
+            onClick={onAddNew}
+            className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-bold text-slate-200 hover:bg-dark-panel3 transition"
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/20 text-primary">
+              <Plus className="h-3.5 w-3.5" />
+            </span>
+            Add New B-roll
+          </button>
+
+          <button
+            onClick={() => setView('transition')}
+            disabled={!item}
+            className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-bold text-slate-200 hover:bg-dark-panel3 transition disabled:opacity-40 disabled:hover:bg-transparent"
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-dark-panel3 text-slate-300">
+              <Wand2 className="h-3.5 w-3.5" />
+            </span>
+            <span className="flex-1">Edit Transition</span>
+            <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
+          </button>
+
+          <div className="my-1 h-px bg-dark-border" />
+
+          <button
+            onClick={onDelete}
+            className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-bold text-danger hover:bg-red-950/40 transition"
+          >
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-red-950/50 text-danger">
+              <Trash2 className="h-3.5 w-3.5" />
+            </span>
+            Delete B-roll
+          </button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2.5 p-1">
+          <button
+            onClick={() => setView('menu')}
+            className="flex w-fit items-center gap-1 text-[11px] font-bold text-slate-400 hover:text-slate-200 transition"
+          >
+            <ArrowLeft className="h-3 w-3" />
+            Back
+          </button>
+
+          <div>
+            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              Reveal Animation
+            </p>
+            <div className="grid grid-cols-2 gap-1">
+              {REVEAL_ANIMATIONS.map((anim) => (
+                <button
+                  key={anim.id}
+                  onClick={() => onUpdate({ revealAnimation: anim.id })}
+                  className={`flex items-center justify-between gap-1 rounded-lg border px-2 py-1.5 text-[10px] font-bold transition ${
+                    item?.revealAnimation === anim.id
+                      ? 'border-primary/60 bg-primary/20 text-primary'
+                      : 'border-dark-border bg-dark-panel3 text-slate-300 hover:border-primary/30'
+                  }`}
+                >
+                  {anim.label}
+                  {item?.revealAnimation === anim.id && <Check className="h-3 w-3 shrink-0" />}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              Screen Layout
+            </p>
+            <div className="grid grid-cols-1 gap-1">
+              {LAYOUTS.map((l) => (
+                <button
+                  key={l.id}
+                  onClick={() => onUpdate({ layout: l.id })}
+                  className={`flex items-center justify-between gap-1 rounded-lg border px-2 py-1.5 text-[10px] font-bold transition ${
+                    item?.layout === l.id
+                      ? 'border-primary/60 bg-primary/20 text-primary'
+                      : 'border-dark-border bg-dark-panel3 text-slate-300 hover:border-primary/30'
+                  }`}
+                >
+                  {l.label}
+                  {item?.layout === l.id && <Check className="h-3 w-3 shrink-0" />}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
+              Reveal Speed (s)
+            </p>
+            <input
+              type="number"
+              min="0.1"
+              max="3"
+              step="0.1"
+              value={item?.revealDuration ?? 0.5}
+              onChange={(e) => onUpdate({ revealDuration: parseFloat(e.target.value) || 0.5 })}
+              className="w-full rounded-lg border border-dark-border bg-dark-panel3 px-2 py-1.5 text-xs font-bold text-slate-200 outline-none focus:border-primary/60"
+            />
+          </div>
+
+          <button
+            onClick={onClose}
+            className="mt-1 rounded-xl bg-primary px-2.5 py-1.5 text-[11px] font-bold text-white shadow-purpleGlow hover:bg-primary-hover transition"
+          >
+            Done
+          </button>
+        </div>
+      )}
     </div>
   )
 }

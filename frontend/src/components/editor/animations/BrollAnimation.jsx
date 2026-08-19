@@ -1,4 +1,5 @@
 import React from 'react'
+import { DRIFT_ANIMS, brollDriftPct, BROLL_OVERSCAN } from './driftMotion'
 
 export function computeRevealStyle({ item, currentTime, layout }) {
   const anim = item.revealAnimation || 'slide_down'
@@ -10,17 +11,23 @@ export function computeRevealStyle({ item, currentTime, layout }) {
   let opacity = item.opacity ?? 1
   let clipPath = 'none'
 
+  // Once the reveal itself finishes, directional b-rolls keep drifting
+  // slowly in the same direction they entered from instead of freezing —
+  // a subtle continuous motion so the layer never goes fully static. Zero
+  // while the entrance is still playing (kicks in only once settled).
+  const drift = DRIFT_ANIMS.has(anim) ? brollDriftPct(currentTime, item, dur) : 0
+
   if (anim === 'slide_down') {
-    transform = `translateY(${-100 * (1 - ease)}%)`
+    transform = `translateY(${-100 * (1 - ease) + drift}%) scale(${BROLL_OVERSCAN})`
   } else if (anim === 'slide_up') {
-    transform = `translateY(${100 * (1 - ease)}%)`
+    transform = `translateY(${100 * (1 - ease) - drift}%) scale(${BROLL_OVERSCAN})`
   } else if (anim === 'slide_left') {
-    transform = `translateX(${100 * (1 - ease)}%)`
+    transform = `translateX(${100 * (1 - ease) - drift}%) scale(${BROLL_OVERSCAN})`
   } else if (anim === 'slide_right') {
-    transform = `translateX(${-100 * (1 - ease)}%)`
+    transform = `translateX(${-100 * (1 - ease) + drift}%) scale(${BROLL_OVERSCAN})`
   } else if (anim === 'bounce_in') {
     const bounce_p = p < 0.7 ? (p / 0.7) * 1.15 : 1.15 - ((p - 0.7) / 0.3) * 0.15
-    transform = `translateY(${-100 * (1 - bounce_p)}%)`
+    transform = `translateY(${-100 * (1 - bounce_p) + drift}%) scale(${BROLL_OVERSCAN})`
   } else if (anim === 'fade_in') {
     opacity = opacity * p
   } else if (anim === 'zoom_in' || anim === 'pop') {
