@@ -63,7 +63,7 @@ def _words_from_segments(segments: List[dict]) -> List[WordTiming]:
     return words
 
 
-def transcribe_words(source_path: str) -> List[WordTiming]:
+def transcribe_words(source_path: str, language: str | None = None) -> List[WordTiming]:
     """Run word-level transcription on a video or audio file via Groq's
     hosted Whisper. Returns a flat list of {word, start, end, probability}
     across the whole file — the caption-generation step (caption_templates.py)
@@ -87,6 +87,8 @@ def transcribe_words(source_path: str) -> List[WordTiming]:
                 ("timestamp_granularities[]", "word"),
                 ("temperature", "0"),
             ]
+            if language:
+                data.append(("language", language))
             resp = requests.post(
                 GROQ_TRANSCRIBE_URL,
                 headers={"Authorization": f"Bearer {api_key}"},

@@ -104,9 +104,9 @@ function ProjectCard({ project, onOpen, onRename, onDelete }) {
   return (
     <div
       onClick={() => !renaming && onOpen(project.id)}
-      className="group relative flex cursor-pointer flex-col overflow-hidden rounded-2xl bg-dark-panel shadow-xl shadow-black/40 transition-all duration-200 hover:-translate-y-1.5 hover:bg-dark-panel2 hover:shadow-2xl hover:shadow-primary/25"
+      className="group relative flex cursor-pointer flex-col rounded-2xl bg-dark-panel shadow-xl shadow-black/40 transition-all duration-200 hover:-translate-y-1.5 hover:bg-dark-panel2 hover:shadow-2xl hover:shadow-primary/25"
     >
-      <div className="relative aspect-[9/14] w-full overflow-hidden bg-dark-panel2">
+      <div className="relative aspect-[9/14] w-full overflow-hidden rounded-t-2xl bg-dark-panel2">
         {mainAsset ? (
           <video src={api.assetUrl(mainAsset)} className="h-full w-full object-cover opacity-90 group-hover:opacity-100 transition duration-300" muted preload="metadata" />
         ) : (
@@ -182,7 +182,7 @@ function ProjectCard({ project, onOpen, onRename, onDelete }) {
             <MoreHorizontal className="h-4 w-4" />
           </button>
           {menuOpen && (
-            <div className="absolute right-0 top-8 z-20 w-36 overflow-hidden rounded-xl bg-dark-panel p-1 shadow-2xl shadow-black/80">
+            <div className="absolute right-0 top-8 z-30 w-36 overflow-hidden rounded-xl bg-dark-panel border border-dark-border p-1 shadow-2xl shadow-black/90">
               <button
                 onClick={() => {
                   setMenuOpen(false)

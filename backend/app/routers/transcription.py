@@ -7,7 +7,7 @@ router = APIRouter(prefix="/api/projects", tags=["transcription"])
 
 
 @router.post("/{project_id}/transcribe")
-def transcribe(project_id: str, assetId: str):
+def transcribe(project_id: str, assetId: str, language: str | None = None):
     project = db.get_project(project_id)
     if not project:
         raise HTTPException(404, "Project not found")
@@ -19,7 +19,7 @@ def transcribe(project_id: str, assetId: str):
         raise HTTPException(400, "Asset must be a video or audio file")
 
     try:
-        words = transcribe_words(asset["url"])
+        words = transcribe_words(asset["url"], language=language)
     except RuntimeError as e:
         raise HTTPException(500, f"Transcription failed: {e}")
     except Exception as e:

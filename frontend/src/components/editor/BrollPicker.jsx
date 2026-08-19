@@ -44,6 +44,12 @@ export default function BrollPicker() {
     setQuery(brollQuery)
   }, [brollLibraryOpen])
 
+  const currentTemplateId = useEditorStore((s) => s.project?.templateId)
+  const isSplitReaction = currentTemplateId === 'split_reaction'
+  const attachOpts = isSplitReaction
+    ? { layout: 'split_bottom', revealAnimation: 'slide_down', revealDuration: 0.5 }
+    : { layout: 'full', revealAnimation: 'none', revealDuration: 0.5 }
+
   if (!brollLibraryOpen) return null
 
   function onQueryChange(v) {
@@ -152,7 +158,7 @@ export default function BrollPicker() {
                   <button
                     key={r.id}
                     disabled={isAttachingBroll}
-                    onClick={() => attachBrollResult(r)}
+                    onClick={() => attachBrollResult(r, attachOpts)}
                     className="group relative block w-full overflow-hidden rounded-2xl border border-dark-border bg-dark-panel2 hover:border-primary hover:shadow-purpleGlow transition-all duration-200 aspect-[9/16] text-left disabled:opacity-50"
                   >
                     <img src={r.thumbnail} alt="" className="h-full w-full object-cover group-hover:scale-105 transition duration-300 opacity-90 group-hover:opacity-100" />

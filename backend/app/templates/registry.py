@@ -5,6 +5,9 @@ the frontend picker all read this list/dict directly).
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from .schema import VideoTemplate, CaptionStyle, BrollStyle, OverlayStyle
 
 TEMPLATES: dict[str, VideoTemplate] = {
@@ -171,7 +174,55 @@ TEMPLATES: dict[str, VideoTemplate] = {
         ),
         broll=BrollStyle(frequency="low", defaultScale=0.5, position="top-right", transitionMs=300),
     ),
+    "split_reaction": VideoTemplate(
+        id="split_reaction",
+        name="Split Reaction",
+        category="TikTok",
+        description="Duet-style split-screen video with animated slide-down reaction B-roll.",
+        tags=["duet", "split-screen", "reaction"],
+        aspectRatio="9:16",
+        accentColor="#EC4899",
+        thumbnailUrl="/api/templates/thumbnails/split_reaction.jpg",
+        overlayVideoUrl="/api/templates/overlays/split_reaction.mp4",
+        caption=CaptionStyle(
+            fontFamily="Space Grotesk", fontWeight=800, fontSize=72,
+            color="#FFFFFF", highlightColor="#EC4899", strokeColor="#000000",
+            strokeWidth=3, position="bottom", alignment="center",
+            case="upper", animation="pop", wordsPerCaption=3,
+        ),
+        broll=BrollStyle(
+            frequency="medium", defaultScale=1.0, position="split_bottom",
+            transitionMs=500, layout="split_bottom", revealAnimation="slide_down", revealDuration=0.5
+        ),
+    ),
 }
+
+
+LIBRARY_DIR = Path(__file__).parent / "library"
+THUMBNAILS_DIR = LIBRARY_DIR / "thumbnails"
+OVERLAYS_DIR = LIBRARY_DIR / "overlays"
+
+
+def reload_templates() -> list[VideoTemplate]:
+    """Load/reload template JSON files from templates/library/*.json into TEMPLATES."""
+    if LIBRARY_DIR.exists():
+        for json_path in LIBRARY_DIR.glob("*.json"):
+            try:
+                data = json.loads(json_path.read_text(encoding="utf-8"))
+                template = VideoTemplate(**data)
+                TEMPLATES[template.id] = template
+            except Exception as e:
+                print(f"[registry] Error loading template JSON {json_path.name}: {e}")
+    return list(TEMPLATES.values())
+
+
+def resolve_overlay_path(overlay_url: str | None) -> Path | None:
+    """Resolve an overlay video URL path to its absolute filesystem Path."""
+    if not overlay_url:
+        return None
+    filename = Path(overlay_url).name
+    path = OVERLAYS_DIR / filename
+    return path if path.exists() else None
 
 
 def list_templates() -> list[VideoTemplate]:
@@ -180,3 +231,8 @@ def list_templates() -> list[VideoTemplate]:
 
 def get_template(template_id: str) -> VideoTemplate | None:
     return TEMPLATES.get(template_id)
+
+
+# Initial load of templates from JSON files in library/
+reload_templates()
+

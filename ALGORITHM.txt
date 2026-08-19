@@ -21,13 +21,14 @@ Algorithm Steps:
   Step 2: Groq Hosted Whisper API Request
           Posts WAV audio file to Groq API (https://api.groq.com/openai/v1/audio/transcriptions)
           Payload parameters:
-            - model: "whisper-large-v3-turbo"
+            - model: "whisper-large-v3-turbo" (configurable via WHISPER_MODEL env var)
             - response_format: "verbose_json"
             - timestamp_granularities[]: "word"
             - temperature: "0"
+            - language: optional language code (e.g. "en")
           Parses response payload for `words` array containing {word, start, end}.
 
-  Step 3: Segment Interpolation Fallback
+  Step 3: Segment Interpolation Fallback (_words_from_segments)
           If the API returns segments without individual word timestamps:
           For each segment with text tokens T = [t_1, t_2, ..., t_N] across window [seg_start, seg_end]:
             step = max(seg_end - seg_start, 0.05) / N
@@ -38,10 +39,11 @@ Algorithm Steps:
 
 2. CAPTION PHRASE-GROUPING & STYLING ALGORITHM
 -------------------------------------------------------------------------------
-Location: backend/app/caption_templates.py (_group_words_into_captions)
+Location: backend/app/caption_templates.py (_group_words_into_captions, generate_captions_from_style, generate_caption_items)
 
 Purpose:
-Transforms flat word-level transcript lists into timed, styled TimelineItems.
+Transforms flat word-level transcript lists into timed, styled TimelineItems on 
+the caption track.
 
 Algorithm Steps:
   Step 1: Word Chunking
@@ -53,33 +55,37 @@ Algorithm Steps:
           For each word group:
             start    = Group_k[0].start
             end      = Group_k[-1].end (or start + duration)
-            duration = max(end - start, 0.15)
+            duration = round(max(end - start, 0.15), 3)
 
   Step 3: Styling & Transformation
           - Joins group text with space separation.
-          - Applies text casing (e.g. UPPERCASE for Hormozi / TikTok / Viral styles).
-          - Binds design parameters: fontFamily, fontSize, color, highlightColor, 
-            strokeWidth, strokeColor, backgroundColor, screen position, and animation style.
-          - Constructs a validated TimelineItem object on the 'caption' track.
+          - Applies text casing:
+              if case == "upper": text = text.upper()
+          - Binds design parameters from template CaptionConfig:
+              fontFamily, fontWeight, fontSize, color, highlightColor, 
+              strokeColor, strokeWidth, backgroundColor, position (top/center/bottom),
+              textAlign (left/center/right), animation (fade/pop/bounce/karaoke/word_by_word/slide_up).
+          - Constructs a validated TimelineItem object on the 'caption' track with zIndex=100.
 
 
 3. AI AUTO-EDIT DECISION GENERATION & VALIDATION ALGORITHM
 -------------------------------------------------------------------------------
-Location: backend/app/ai_edit.py (call_auto_edit, validate_decisions)
+Location: backend/app/ai_edit.py (call_auto_edit, call_openrouter, call_gemini_direct, validate_decisions)
 
 Purpose:
-Uses LLMs (OpenRouter/GPT-4o-mini or Gemini 2.0 Flash) to automatically plan video 
-edits (zooms, B-roll suggestions, emphasis captions), then filters out malformed or 
-overlapping decisions before timeline injection.
+Uses LLMs (OpenRouter/GPT-4o-mini with Gemini 3.7/2.0 Flash fallback) to 
+automatically plan video edits (zooms, B-roll suggestions, caption emphasis), 
+then filters out malformed or overlapping decisions before timeline injection.
 
 Algorithm Steps:
-  Step 1: Compact Prompt Assembly
-          Formats transcript into compact text: "[start-end] word" per line.
+  Step 1: Compact Prompt Assembly (_build_transcript_text)
+          Formats transcript into compact timestamped text: "[start-end] word" per line.
           Includes total video duration and structural system instructions.
 
-  Step 2: Structured JSON Generation
-          Queries LLM with response_format={"type": "json_object"}.
-          Expects JSON schema: {hook, title, description, moments: [{type, start, end, keyword, scale}]}.
+  Step 2: Dual Provider API Execution (call_auto_edit)
+          - Primary: OpenRouter API (openai/gpt-4o-mini) with response_format={"type": "json_object"}.
+          - Fallback: On network error or timeout, switches to Google Gemini API (gemini-3.7-flash).
+          - Expects JSON schema: {hook, title, description, moments: [{type, start, end, reason, keyword, scale}]}.
 
   Step 3: Hard Validation Gate (validate_decisions)
           Iterates through raw edit moments and enforces strict bounds:
@@ -88,7 +94,7 @@ Algorithm Steps:
           2. Keyword Requirement:
              Drop type=="broll_suggestion" if keyword is missing or whitespace.
           3. Zoom Scale Clamping:
-             For type=="zoom", clamp scale to range [1.05, 2.0].
+             For type=="zoom", clamp scale to range [1.05, 2.0] (default fallback 1.25).
           4. Non-Overlapping Window Constraint:
              Maintains dictionary of accepted windows per moment type `seen_windows[type]`.
              Calculates overlap condition with existing windows (s_prev, e_prev):
@@ -98,7 +104,7 @@ Algorithm Steps:
 
 4. PEXELS B-ROLL SEARCH & PORTRAIT MATCHING ALGORITHM
 -------------------------------------------------------------------------------
-Location: backend/app/pexels.py (search_broll, _pick_best_mp4, fetch_broll_asset)
+Location: backend/app/pexels.py (search_broll, trending_broll, _pick_best_mp4, download_broll_asset, fetch_broll_asset)
 
 Purpose:
 Searches Pexels stock video library and selects optimal portrait MP4 files for 
@@ -106,48 +112,55 @@ previewing and timeline overlays.
 
 Algorithm Steps:
   Step 1: Pexels API Query
-          Queries Pexels Search API with params: query=<keyword>, orientation="portrait".
+          Queries Pexels Search API (`https://api.pexels.com/videos/search`) or Popular API 
+          with params: query=<keyword>, orientation="portrait", per_page=N, page=P.
 
   Step 2: Resolution & Aspect Ratio Filtering (_pick_best_mp4)
           For each returned video item:
           - Filters video files for mime type "video/mp4".
-          - Validates portrait aspect ratio: width <= height.
-          - Enforces height cap: height <= 1920 (prevents unnecessarily large downloads).
+          - Validates portrait aspect ratio: width <= height (fw <= fh).
+          - Enforces height cap: height <= 1920 (PEXELS_MAX_VIDEO_HEIGHT).
           - Selects highest resolution link <= 1920 for render download.
           - Selects smallest resolution link for fast browser thumbnail preview loops.
 
-  Step 3: Media Ingestion & Metadata Extraction
+  Step 3: Media Ingestion & Metadata Extraction (download_broll_asset)
           - Streams MP4 content to disk using `save_stream`.
-          - Executes `ffprobe` to determine precise duration and pixel dimensions (width, height).
+          - Executes `ffprobe` to determine precise duration (`probe_duration`) and 
+            pixel dimensions (`probe_dimensions`).
           - Returns an Asset dict registered in project.assets.
 
 
 5. TEMPLATE ENGINE & PRESET REGISTRY ALGORITHM
 -------------------------------------------------------------------------------
-Location: backend/app/template_engine.py (apply_edit_decisions), backend/app/templates/registry.py
+Location: backend/app/template_engine.py (apply_edit_decisions), backend/app/templates/registry.py, backend/app/routers/templates.py
 
 Purpose:
 Translates validated EditDecisions into active timeline tracks and elements while 
-applying dynamic preset themes.
+applying dynamic preset themes and video overlays.
 
 Algorithm Steps:
-  1. Registry Loading & JSON Override Resolution:
-     Loads default preset rules from Pydantic schemas in `templates/schema.py` 
-     and merges runtime overrides from `templates/library/*.json`.
+  Step 1: Registry Loading & Override Resolution (templates/registry.py)
+          Loads default preset rules from Pydantic schemas in `templates/schema.py` 
+          and merges runtime JSON overrides from `templates/library/*.json`.
 
-  2. Track Resolution:
-     Resolves or creates target tracks ('zoom', 'broll', 'caption') on the Timeline model.
+  Step 2: Track Resolution (_find_or_create_track)
+          Resolves or creates target tracks ('zoom', 'broll', 'caption', 'overlay') on the Timeline model.
 
-  3. Moment Mapping:
-     - type=="zoom":
-       Appends TimelineItem to 'zoom' track with scale, zIndex=50, start, and duration.
-     - type=="broll_suggestion":
-       Checks if keyword matches a downloaded Pexels asset.
-       If matched: assigns assetId to item.
-       If unmatched: leaves assetId=None (renderer safely skips unattached suggestions).
-     - type=="emphasis_caption":
-       Finds existing items on 'caption' track overlapping window [start, end].
-       Increases matching caption fontSize by 1.25x and sets color to highlightColor.
+  Step 3: Moment Mapping (apply_edit_decisions)
+          - type=="zoom":
+            Appends TimelineItem to 'zoom' track with scale, zIndex=50, start, and duration.
+          - type=="broll_suggestion":
+            Checks if keyword matches a downloaded Pexels asset.
+            If matched: assigns assetId to item.
+            If unmatched: leaves assetId=None (renderer safely skips unattached suggestions).
+          - type=="emphasis_caption":
+            Finds existing items on 'caption' track overlapping window [start, end].
+            Increases matching caption fontSize by 1.25x and sets color to highlightColor (#FBBF24).
+
+  Step 4: Overlay Video Injection (_apply_overlay_video)
+          If template defines an overlay video loop (e.g., film grain, light leaks):
+          Injects a full-duration item on the 'overlay' track with specified blendMode ('screen') 
+          and opacity.
 
 
 6. FFMPEG MULTI-TRACK FILTERGRAPH RENDER ALGORITHM
@@ -161,59 +174,63 @@ Algorithm Steps:
   Step 1: Input Setup
           - Base Video: `-ss sourceStart -t duration -i main.mp4`
           - B-roll Clips: `-ss sourceStart -t duration -i clip.mp4` (or `-loop 1` for images)
-          - Audio Tracks: `-ss sourceStart -t duration -i audio.mp4`
+          - Audio/SFX Tracks: `-ss sourceStart -t duration -i audio.mp4`
 
   Step 2: Base Video Stream Normalization
           Converts primary video to project canvas bounds (W x H) and target fps:
           `[0:v]scale=W:H:force_original_aspect_ratio=increase,crop=W:H,fps=fps,setsar=1[base0]`
 
-  Step 3: Zoom Overlay Filter Chain
+  Step 3: Zoom Punch-In Overlay Filter Chain
           For each zoom moment:
           - Scales source video to zoomed resolution zw = int(W * scale), zh = int(H * scale).
-          - Crops back to canvas W x H.
+          - Crops back to canvas W x H: `scale=zw:zh:force_original_aspect_ratio=increase,crop=W:H,fps=fps,setsar=1[zoomsrc_i]`
           - Overlays cropped zoom video over base stream during time window [start, start + duration]:
-            `overlay=x=0:y=0:enable='between(t,start,end)'`
+            `[current][zoomsrc_i]overlay=x=0:y=0:enable='between(t,start,end)'[zoomov_i]`
 
-  Step 4: B-roll Overlay Filter Chain
-          For each B-roll item sorted by zIndex:
-          - Scales overlay video to relative width ow = int(W * 0.5 * scale).
+  Step 4: B-roll & Overlay Track Filter Chain
+          For each overlay/broll item sorted by zIndex:
+          - Scales overlay video to relative width ow = int(W * (1.0 if overlay else 0.5) * scale).
           - Adjusts channel opacity (`colorchannelmixer=aa=opacity`).
-          - Overlays onto current video stream at (x, y) during time window:
-            `overlay=x=X:y=Y:enable='between(t,start,end)'`
+          - Applies blend mode:
+              if blendMode == "screen":
+                `[current][broll_i]blend=all_mode=screen:enable='between(t,start,end)'[ov_i]`
+              else:
+                `[current][broll_i]overlay=x=X:y=Y:enable='between(t,start,end)'[ov_i]`
 
   Step 5: Dynamic Caption Text Rendering (drawtext)
           For each caption item:
           - Escapes special characters (`\`, `:`, `'`, `%`).
-          - Converts CSS hex color (#RRGGBBAA) to FFmpeg color syntax (0xRRGGBB@alpha).
-          - Calculates vertical position Y based on layout:
-              top    -> 0.08 * H
-              center -> (h - text_h) / 2
-              bottom -> h - 0.14 * H - text_h
-          - Constructs drawtext filter with fade animation alpha function:
+          - Converts CSS hex color (#RRGGBBAA) to FFmpeg color syntax (`0xRRGGBB` or `0xRRGGBB@alpha`).
+          - Calculates vertical position Y based on position:
+               top    -> 0.08 * H
+               center -> 0.60 * H - (text_h / 2)
+               bottom -> h - 0.14 * H - text_h
+          - Constructs drawtext filter with optional fade animation alpha function:
               alpha='if(lt(t, start + fade_dur), (t - start) / fade_dur, if(gt(t, end - fade_dur), (end - t) / fade_dur, 1))'
           - Enables drawtext during time window: `enable='between(t,start,end)'`.
 
   Step 6: Audio Mixing Filter Chain
           - Applies item volume scaling: `volume=vol`.
-          - Applies timeline start delay: `adelay=delay_ms|delay_ms`.
-          - Combines all audio streams into a single output using `amix`:
-            `amix=inputs=N:dropout_transition=0[aout]`
+          - Applies timeline start delay in milliseconds: `adelay=delay_ms|delay_ms`.
+          - Combines main audio and additional audio/SFX streams into a single stream using `amix`:
+            `[a0][a1]...amix=inputs=N:dropout_transition=0[aout]`
 
   Step 7: Encoding Execution
-          Executes FFmpeg with options:
-          `-r fps -c:v libx264 -preset veryfast -c:a aac -shortest output.mp4`
+          Executes FFmpeg binary with encoding arguments:
+          `ffmpeg -y -i ... -filter_complex <filtergraph> -map [video_out] -map [audio_out] -r fps -c:v libx264 -preset veryfast -c:a aac -shortest output.mp4`
 
 
 7. FRONTEND CANVAS SYNCHRONIZATION & INTERACTIVE PREVIEW ENGINE
 -------------------------------------------------------------------------------
-Location: frontend/src/components/editor/VideoPreview.jsx, stores/editorStore.js
+Location: frontend/src/components/editor/VideoPreview.jsx, components/editor/Scenes.jsx, stores/editorStore.js
 
 Purpose:
-Renders live preview of video, dynamic animated captions, B-roll video overlays, and camera zoom transforms in exact sync with audio playback position.
+Renders live interactive browser preview of video, dynamic animated captions, B-roll 
+video overlays, and camera zoom transforms in exact sync with audio playback position.
 
 Algorithm Steps:
-  Step 1: Playback Loop Hook
-          React `requestAnimationFrame` loop queries HTML5 video currentTime at 60Hz.
+  Step 1: 60Hz Playback Sync Loop
+          React `requestAnimationFrame` loop queries HTML5 video element `currentTime` at 60Hz.
           Updates Zustand `currentTime` state store smoothly.
 
   Step 2: Active Timeline Item Filtering
@@ -222,9 +239,15 @@ Algorithm Steps:
             activeZooms    = zooms.filter(z => t >= z.start && t <= z.start + z.duration)
             activeBrolls   = brolls.filter(b => t >= b.start && t <= b.start + b.duration)
 
-  Step 3: CSS Scale & Overlay Transform Injection
-          - Appears active zoom CSS transform: `transform: scale(zoom.scale)` on base video wrapper.
+  Step 3: Dynamic CSS Scale & Overlay Transform Injection
+          - Applies active zoom CSS transform: `transform: scale(zoom.scale)` on base video wrapper.
           - Dynamically renders active B-roll overlay video positioned on top canvas layer.
-          - Computes word highlight karaoke animation for caption text based on word timestamps.
+          - Computes word-by-word highlight karaoke animation for caption text based on transcript word timestamps.
+
+  Step 4: Sentence Scene Segmentation (Scenes.jsx / editorStore.js)
+          - Groups word-level transcript into sentence-level chunks based on punctuation regex (`/[.!?]$/`) 
+            or maximum 14 words per group.
+          - Computes scene `start` (first word start) and `end` (last word end).
+          - Powers the Scenes UI panel for instant zoom toggling and scene-level B-roll attachments.
 
 ===============================================================================

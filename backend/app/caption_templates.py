@@ -88,13 +88,20 @@ def generate_caption_items(words: List[dict], template_id: str, words_per_captio
 
 def generate_captions_from_style(words: List[dict], caption_style, words_per_caption: int | None = None) -> List[dict]:
     """Template System path. `caption_style` is a
-    templates.schema.CaptionStyle (or any object/dict with the same
+    templates.schema.CaptionConfig (or any object/dict with the same
     fields) — this is what routers/templates.py calls when applying a
     full VideoTemplate."""
     get = (lambda k: caption_style.get(k)) if isinstance(caption_style, dict) else (lambda k: getattr(caption_style, k))
+
+    animation = get("animation")
+    # "word_by_word" is a grouping choice as much as a visual style — one
+    # caption item per word — unless the template author explicitly
+    # overrides wordsPerCaption.
+    default_group = 1 if animation == "word_by_word" else get("wordsPerCaption")
+
     return _group_words_into_captions(
         words,
-        group_size=max(1, words_per_caption or get("wordsPerCaption")),
+        group_size=max(1, words_per_caption or default_group),
         fontFamily=get("fontFamily"),
         fontWeight=get("fontWeight"),
         fontSize=get("fontSize"),
@@ -104,8 +111,9 @@ def generate_captions_from_style(words: List[dict], caption_style, words_per_cap
         strokeWidth=get("strokeWidth"),
         backgroundColor=get("backgroundColor"),
         position=get("position"),
+        textAlign=get("alignment"),
         case=get("case"),
-        animation=get("animation"),
+        animation=animation,
     )
 
 
@@ -124,6 +132,7 @@ def _group_words_into_captions(
     position: str,
     case: str,
     animation: str,
+    textAlign: str = "center",
 ) -> List[dict]:
     items: List[dict] = []
     for i in range(0, len(words), group_size):
@@ -158,6 +167,7 @@ def _group_words_into_captions(
                 "strokeWidth": strokeWidth,
                 "backgroundColor": backgroundColor,
                 "position": position,
+                "textAlign": textAlign,
                 "case": case,
                 "animation": animation,
             }

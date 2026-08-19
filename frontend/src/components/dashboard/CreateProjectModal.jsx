@@ -36,6 +36,14 @@ const FLOWS = [
   },
 ]
 
+const LANGUAGES = [
+  { code: 'en', label: '🇺🇸 English (US)' },
+  { code: 'es', label: '🇪🇸 Spanish' },
+  { code: 'fr', label: '🇫🇷 French' },
+  { code: 'de', label: '🇩🇪 German' },
+  { code: 'hi', label: '🇮🇳 Hindi' },
+]
+
 async function createProjectWithVideo(file, templateId) {
   const project = await api.createProject({ name: file.name.replace(/\.[^.]+$/, ''), templateId: templateId || undefined })
   const asset = await api.uploadAsset(project.id, file)
@@ -72,6 +80,7 @@ export default function CreateProjectModal({ open, onClose }) {
   const [error, setError] = useState(null)
   const [selectedFile, setSelectedFile] = useState(null)
   const [videoPreviewUrl, setVideoPreviewUrl] = useState(null)
+  const [language, setLanguage] = useState('en')
   const fileInputRef = useRef(null)
 
   useEffect(() => {
@@ -82,6 +91,7 @@ export default function CreateProjectModal({ open, onClose }) {
       setError(null)
       setSelectedFile(null)
       setVideoPreviewUrl(null)
+      setLanguage('en')
     }
   }, [open])
 
@@ -121,12 +131,12 @@ export default function CreateProjectModal({ open, onClose }) {
 
       if (flow === 'captions') {
         setProgressMsg('Transcribing audio with AI...')
-        await api.transcribe(projectId, assetId)
+        await api.transcribe(projectId, assetId, language)
         setProgressMsg('Generating styled captions...')
         await api.generateCaptions(projectId, 'clean_bottom', null, true)
       } else if (flow === 'auto') {
         setProgressMsg('Transcribing audio...')
-        await api.transcribe(projectId, assetId)
+        await api.transcribe(projectId, assetId, language)
         setProgressMsg('Applying theme template...')
         await api.applyTemplate(projectId, templateId, true)
         setProgressMsg('Planning AI zooms & B-roll footage...')
@@ -139,6 +149,8 @@ export default function CreateProjectModal({ open, onClose }) {
       setStep('upload')
     }
   }
+
+  const appliedTemplateName = templates.find((t) => t.id === templateId)?.name || templateId
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-4 transition-all">
@@ -227,9 +239,13 @@ export default function CreateProjectModal({ open, onClose }) {
                     className="aspect-[9/12] w-full relative flex items-center justify-center"
                     style={{ background: `radial-gradient(120% 120% at 50% 0%, ${t.accentColor}33, #0D111A 65%)` }}
                   >
-                    <span className="rounded-lg bg-dark-panel/90 px-2.5 py-1 text-[11px] font-bold text-slate-200 shadow-md">
-                      {t.name}
-                    </span>
+                    {t.thumbnailUrl ? (
+                      <img src={t.thumbnailUrl} alt={t.name} className="absolute inset-0 h-full w-full object-cover" />
+                    ) : (
+                      <span className="relative rounded-lg bg-dark-panel/90 px-2.5 py-1 text-[11px] font-bold text-slate-200 shadow-md">
+                        {t.name}
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center justify-between p-2.5 shadow-sm">
                     <span className="text-xs font-semibold text-slate-200 truncate">{t.name}</span>
@@ -280,11 +296,10 @@ export default function CreateProjectModal({ open, onClose }) {
                     handleFileSelect(e.dataTransfer.files?.[0])
                   }}
                   onClick={() => fileInputRef.current?.click()}
-                  className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl p-8 text-center transition-all shadow-lg ${
-                    dragOver
+                  className={`flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl p-8 text-center transition-all shadow-lg ${dragOver
                       ? 'bg-primary/20 shadow-purpleGlow'
                       : 'bg-dark-panel2/90 hover:bg-dark-panel3'
-                  }`}
+                    }`}
                 >
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/20 text-primary shadow-purpleGlow">
                     <UploadCloud className="h-6 w-6" />
@@ -310,12 +325,14 @@ export default function CreateProjectModal({ open, onClose }) {
                     <Globe className="h-4 w-4 text-slate-400" />
                     Speech Language
                   </span>
-                  <select className="rounded-xl bg-[#1E273C] px-3.5 py-2 text-xs font-bold text-slate-100 outline-none shadow-md cursor-pointer hover:bg-[#25304A] transition">
-                    <option value="en-US">🇺🇸 English (US)</option>
-                    <option value="es">🇪🇸 Spanish</option>
-                    <option value="fr">🇫🇷 French</option>
-                    <option value="de">🇩🇪 German</option>
-                    <option value="hi">🇮🇳 Hindi</option>
+                  <select
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                    className="rounded-xl bg-[#1E273C] px-3.5 py-2 text-xs font-bold text-slate-100 outline-none shadow-md cursor-pointer hover:bg-[#25304A] transition"
+                  >
+                    {LANGUAGES.map((l) => (
+                      <option key={l.code} value={l.code}>{l.label}</option>
+                    ))}
                   </select>
                 </div>
 
@@ -326,18 +343,10 @@ export default function CreateProjectModal({ open, onClose }) {
                       Applied Template
                     </span>
                     <span className="rounded-lg bg-[#1E273C] px-3 py-1.5 text-xs font-extrabold text-slate-100 shadow-sm">
-                      {templateId}
+                      {appliedTemplateName}
                     </span>
                   </div>
                 )}
-
-                <div className="flex items-center justify-between text-xs pt-2.5">
-                  <span className="flex items-center gap-2 font-bold text-slate-200">
-                    <Sparkles className="h-4 w-4 text-primary" />
-                    Auto Translate Captions
-                  </span>
-                  <div className="toggle-switch active" />
-                </div>
               </div>
 
               {error && <p className="text-xs text-danger font-semibold">{error}</p>}

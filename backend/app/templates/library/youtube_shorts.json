@@ -1,8 +1,9 @@
-{"metadata": {"id": "youtube_shorts", "name": "YouTube Shorts", "category": "YouTube Shorts", "description": "Bold centered karaoke-style captions tuned for Shorts retention.", "createdAt": "2026-08-17", "tags": ["shorts", "karaoke"]},
-  "thumbnail": "/api/templates/thumbnails/youtube_shorts.jpg",
-  "aspectRatio": "9:16",
+{
+  "id": "youtube_shorts", "name": "YouTube Shorts", "category": "YouTube Shorts",
+  "description": "Bold centered karaoke-style captions tuned for Shorts retention.",
+  "tags": ["shorts", "karaoke"], "aspectRatio": "9:16", "accentColor": "#F87171",
+  "thumbnailUrl": "/api/templates/thumbnails/youtube_shorts.jpg",
   "caption": {"fontFamily": "Space Grotesk", "fontSize": 84, "fontWeight": 800, "color": "#FFFFFF", "highlightColor": "#F87171", "strokeColor": "#000000", "strokeWidth": 2, "position": "center", "alignment": "center", "animation": "karaoke", "wordsPerCaption": 3, "case": "none"},
-  "broll": {"enabled": true, "position": "center", "size": 0.55, "transition": "cut", "frequency": "medium"},
-  "overlay": {},
-  "branding": {"primary": "#F87171", "secondary": "#0B0D12", "highlight": "#FFFFFF"}
+  "broll": {"enabled": true, "position": "center", "defaultScale": 0.55, "transitionMs": 150, "frequency": "medium"},
+  "overlay": {"enabled": false}
 }

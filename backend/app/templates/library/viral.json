@@ -1,8 +1,9 @@
-{"metadata": {"id": "viral", "name": "Viral", "category": "Viral", "description": "Big punchy single words, high-contrast yellow, built to stop the scroll.", "createdAt": "2026-08-17", "tags": ["high-energy", "hook-first"]},
-  "thumbnail": "/api/templates/thumbnails/viral.jpg",
-  "aspectRatio": "9:16",
+{
+  "id": "viral", "name": "Viral", "category": "Viral",
+  "description": "Big punchy single words, high-contrast yellow, built to stop the scroll.",
+  "tags": ["high-energy", "hook-first"], "aspectRatio": "9:16", "accentColor": "#FDE047",
+  "thumbnailUrl": "/api/templates/thumbnails/viral.jpg",
   "caption": {"fontFamily": "Space Grotesk", "fontSize": 96, "fontWeight": 800, "color": "#FDE047", "highlightColor": "#FFFFFF", "strokeColor": "#000000", "strokeWidth": 3, "position": "center", "alignment": "center", "animation": "pop", "wordsPerCaption": 1, "case": "upper"},
-  "broll": {"enabled": true, "position": "center", "size": 0.6, "transition": "cut", "frequency": "high"},
-  "overlay": {"hookText": "You won't believe this..."},
-  "branding": {"primary": "#FDE047", "secondary": "#0B0D12", "highlight": "#FFFFFF"}
+  "broll": {"enabled": true, "position": "center", "defaultScale": 0.6, "transitionMs": 150, "frequency": "high"},
+  "overlay": {"enabled": false, "hookText": "You won't believe this..."}
 }

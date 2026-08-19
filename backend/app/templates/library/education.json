@@ -1,8 +1,9 @@
-{"metadata": {"id": "education", "name": "Education", "category": "Education", "description": "Slower-paced, high-legibility captions for explainer and how-to content.", "createdAt": "2026-08-17", "tags": ["explainer", "legible"]},
-  "thumbnail": "/api/templates/thumbnails/education.jpg",
-  "aspectRatio": "4:5",
+{
+  "id": "education", "name": "Education", "category": "Education",
+  "description": "Slower-paced, high-legibility captions for explainer and how-to content.",
+  "tags": ["explainer", "legible"], "aspectRatio": "4:5", "accentColor": "#5EEAD4",
+  "thumbnailUrl": "/api/templates/thumbnails/education.jpg",
   "caption": {"fontFamily": "Inter", "fontSize": 52, "fontWeight": 600, "color": "#FFFFFF", "highlightColor": "#5EEAD4", "strokeColor": null, "strokeWidth": 0, "backgroundColor": "#00000066", "position": "bottom", "alignment": "center", "animation": "fade", "wordsPerCaption": 6, "case": "none"},
-  "broll": {"enabled": true, "position": "top-right", "size": 0.5, "transition": "fade", "frequency": "low"},
-  "overlay": {},
-  "branding": {"primary": "#5EEAD4", "secondary": "#0B0D12", "highlight": "#FDE047"}
+  "broll": {"enabled": true, "position": "top-right", "defaultScale": 0.5, "transitionMs": 300, "frequency": "low"},
+  "overlay": {"enabled": false}
 }

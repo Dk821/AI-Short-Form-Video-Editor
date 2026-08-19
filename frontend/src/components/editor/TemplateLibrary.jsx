@@ -1,7 +1,11 @@
 import { Layers, Check, X, Loader2 } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
 
-function CaptionSample({ caption, accentColor }) {
+function CaptionSample({ caption, accentColor, thumbnailUrl, name }) {
+  if (thumbnailUrl) {
+    return <img src={thumbnailUrl} alt={name} className="h-full w-full rounded-2xl object-cover" />
+  }
+
   const text = caption.case === 'upper' ? 'THE HOOK' : 'the hook'
   const textShadow = caption.strokeWidth
     ? `-${caption.strokeWidth}px 0 ${caption.strokeColor}, 0 ${caption.strokeWidth}px ${caption.strokeColor}, ${caption.strokeWidth}px 0 ${caption.strokeColor}, 0 -${caption.strokeWidth}px ${caption.strokeColor}`
@@ -15,8 +19,9 @@ function CaptionSample({ caption, accentColor }) {
       }}
     >
       <div
-        className="absolute inset-x-3 flex justify-center"
+        className="absolute inset-x-3 flex"
         style={{
+          justifyContent: caption.alignment === 'left' ? 'flex-start' : caption.alignment === 'right' ? 'flex-end' : 'center',
           top: caption.position === 'top' ? '12%' : caption.position === 'center' ? '42%' : undefined,
           bottom: caption.position === 'bottom' ? '12%' : undefined,
         }}
@@ -24,17 +29,14 @@ function CaptionSample({ caption, accentColor }) {
         <span
           className="rounded-lg px-2.5 py-1 text-center font-bold leading-tight border border-dark-border"
           style={{
-            fontFamily: caption.fontFamily === 'Space Grotesk'
-              ? "'Space Grotesk', sans-serif"
-              : caption.fontFamily === 'Montserrat'
-              ? "'Montserrat', sans-serif"
-              : "'Inter', sans-serif",
+            fontFamily: `'${caption.fontFamily || 'Inter'}', sans-serif`,
             fontWeight: caption.fontWeight,
             fontSize: Math.max(11, caption.fontSize / 6.2),
             color: caption.color,
             textShadow,
             backgroundColor: caption.backgroundColor || 'transparent',
             letterSpacing: caption.case === 'upper' ? '0.03em' : 0,
+            textAlign: caption.alignment,
           }}
         >
           {text}
@@ -97,14 +99,13 @@ export default function TemplateLibrary() {
                 key={t.id}
                 disabled={isApplyingTemplate}
                 onClick={() => applyTemplate(t.id)}
-                className={`group flex flex-col overflow-hidden rounded-2xl border text-left transition-all duration-200 disabled:opacity-50 ${
-                  isApplied
+                className={`group flex flex-col overflow-hidden rounded-2xl border text-left transition-all duration-200 disabled:opacity-50 ${isApplied
                     ? 'border-primary ring-2 ring-primary/40 shadow-purpleGlow'
                     : 'border-dark-border bg-dark-panel2 hover:border-primary/50'
-                }`}
+                  }`}
               >
                 <div className="aspect-[9/12] w-full">
-                  <CaptionSample caption={t.caption} accentColor={t.accentColor} />
+                  <CaptionSample caption={t.caption} accentColor={t.accentColor} thumbnailUrl={t.thumbnailUrl} name={t.name} />
                 </div>
                 <div className="flex flex-col gap-1 bg-dark-panel2 p-3 border-t border-dark-border">
                   <div className="flex items-center justify-between">

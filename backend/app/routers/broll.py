@@ -11,6 +11,7 @@ Two-step, matching the frontend's Library panel:
 from __future__ import annotations
 
 import uuid
+from typing import Literal, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -36,6 +37,8 @@ def broll_search(query: str | None = None, page: int = 1, per_page: int = 12):
     return {"query": query, "results": results}
 
 
+from typing import Literal, Optional
+
 class AttachBrollBody(BaseModel):
     downloadUrl: str
     start: float
@@ -44,6 +47,9 @@ class AttachBrollBody(BaseModel):
     scale: float = 0.55
     x: float = 40
     y: float = 40
+    layout: Optional[Literal["full", "split_top", "split_bottom"]] = "full"
+    revealAnimation: Optional[Literal["none", "slide_down", "slide_up"]] = "none"
+    revealDuration: Optional[float] = 0.5
 
 
 @router.post("/projects/{project_id}/broll/attach")
@@ -68,6 +74,9 @@ def attach_broll(project_id: str, body: AttachBrollBody):
         "transform": {"x": body.x, "y": body.y, "scale": body.scale, "rotation": 0},
         "opacity": 1,
         "zIndex": 10,
+        "layout": body.layout or "full",
+        "revealAnimation": body.revealAnimation or "none",
+        "revealDuration": body.revealDuration if body.revealDuration is not None else 0.5,
     }
     broll_track = next(t for t in project["timeline"]["tracks"] if t["type"] == "broll")
     broll_track["items"].append(item)

@@ -67,10 +67,10 @@ export const api = {
   assetUrl: (asset) => asset?.servedPath || '',
 
   // Milestone 2 — transcription + caption templates
-  transcribe: (projectId, assetId) =>
-    fetch(`${BASE}/projects/${projectId}/transcribe?assetId=${encodeURIComponent(assetId)}`, {
-      method: 'POST',
-    }).then(j),
+  transcribe: (projectId, assetId, language) => {
+    const q = new URLSearchParams({ assetId, ...(language ? { language } : {}) }).toString()
+    return fetch(`${BASE}/projects/${projectId}/transcribe?${q}`, { method: 'POST' }).then(j)
+  },
   getCaptionTemplates: () => fetch(`${BASE}/caption-templates`).then(j),
   generateCaptions: (projectId, templateId, wordsPerCaption, replaceExisting = true) =>
     fetch(`${BASE}/projects/${projectId}/captions/generate`, {

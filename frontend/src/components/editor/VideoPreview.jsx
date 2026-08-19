@@ -83,6 +83,26 @@ export default function VideoPreview() {
   const activeZoom = zoomItems.find(activeAt)
   const zoomScale = activeZoom ? activeZoom.transform.scale : 1
 
+  const activeBroll = brollItems.find(activeAt)
+  const activeSplitItem = activeBroll || overlayItems.filter(activeAt).find((it) => it.layout === 'split_top' || it.layout === 'split_bottom')
+
+  const baseStyle = activeSplitItem
+    ? {
+        position: 'absolute',
+        left: 0,
+        top: activeSplitItem.layout === 'split_top' ? '50%' : '50%',
+        width: '100%',
+        height: '50%',
+        objectFit: 'cover',
+        transform: `scale(${zoomScale})`,
+      }
+    : {
+        height: '100%',
+        width: '100%',
+        objectFit: 'cover',
+        transform: `scale(${zoomScale})`,
+      }
+
   function formatTime(s) {
     const m = Math.floor(s / 60)
     const sec = Math.floor(s % 60)
@@ -145,7 +165,7 @@ export default function VideoPreview() {
         {/* Main 9:16 Video Phone Viewport */}
         <div className="flex flex-1 items-center justify-center relative min-h-0 py-2">
           <div
-            className="relative overflow-hidden rounded-2xl bg-white shadow-2xl shadow-black/80"
+            className="relative overflow-hidden rounded-2xl bg-black shadow-2xl shadow-black/80"
             style={{ height: '100%', maxHeight: 460, aspectRatio: width / height }}
           >
 
@@ -154,8 +174,8 @@ export default function VideoPreview() {
               <video
                 ref={videoRef}
                 src={api.assetUrl(mainAsset)}
-                className="h-full w-full object-cover transition-transform duration-200 ease-out"
-                style={{ transform: `scale(${zoomScale})` }}
+                className="transition-transform duration-200 ease-out"
+                style={baseStyle}
                 onTimeUpdate={onTimeUpdate}
                 onEnded={() => setPlaying(false)}
                 playsInline
@@ -169,7 +189,7 @@ export default function VideoPreview() {
             )}
 
             {/* Active Template Screen Blend Video Overlay (Light leaks, Grain, Sparkles, FX) */}
-            {currentTemplate?.overlayVideoUrl && (
+            {currentTemplate?.overlayVideoUrl && !overlayItems.some(it => activeAt(it) && it.sourceUrl === currentTemplate.overlayVideoUrl) && (
               <video
                 src={currentTemplate.overlayVideoUrl}
                 className="absolute inset-0 h-full w-full object-cover pointer-events-none z-10"
@@ -188,49 +208,126 @@ export default function VideoPreview() {
             {[...brollItems, ...overlayItems].filter(activeAt).map((item) => {
               const asset = assets.find((a) => a.id === item.assetId)
               if (!asset) {
-                return (
-                  <div
-                    key={item.id}
-                    className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full bg-slate-950/90 backdrop-blur-md px-3.5 py-1 text-xs font-bold text-primary shadow-lg"
-                  >
-                    🔍 {item.type === 'overlay' ? 'Overlay' : 'B-roll'}: {item.keyword}
-                  </div>
-                )
+                if (item.sourceUrl) {
+                  return (
+                    <video
+                      key={item.id}
+                      src={item.sourceUrl}
+                      className="absolute inset-0 h-full w-full object-cover pointer-events-none z-10"
+                      style={{
+                        mixBlendMode: item.blendMode || 'screen',
+                        opacity: item.opacity ?? 0.85,
+                      }}
+                      autoPlay
+                      muted
+                      loop
+                      playsInline
+                    />
+                  )
+                }
+                if (item.type === 'broll' && item.keyword && item.keyword.trim()) {
+                  return (
+                    <div
+                      key={item.id}
+                      className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full bg-slate-950/90 backdrop-blur-md px-3.5 py-1 text-xs font-bold text-primary shadow-lg"
+                    >
+                      🔍 B-roll: {item.keyword}
+                    </div>
+                  )
+                }
+                return null
               }
               const isVideo = asset.kind === 'video'
+              const isBroll = item.type === 'broll'
+              const layout = item.layout || (isBroll ? 'split_top' : 'full')
+              const anim = item.revealAnimation || 'slide_down' // Guaranteed TOP -> DOWN
+              const dur = item.revealDuration || 0.5
+
+              // Top-to-bottom smooth cubic ease-out slide calculation
+              const p = Math.min(Math.max((currentTime - item.start) / dur, 0), 1)
+              const ease = 1 - Math.pow(1 - p, 3) // smooth deceleration
+              const slideOffset = -(1 - ease) * 100 // starts -100% above frame, slides vertically down to 0%
+
+              if (isBroll || layout === 'split_top' || layout === 'split_bottom') {
+                const translateY = anim === 'none' ? 0 : slideOffset
+                const topPos = layout === 'split_bottom' ? '50%' : '0%'
+                const featherMask = layout === 'split_bottom'
+                  ? 'linear-gradient(to top, rgba(0,0,0,1) 80%, rgba(0,0,0,0) 100%)'
+                  : 'linear-gradient(to bottom, rgba(0,0,0,1) 80%, rgba(0,0,0,0) 100%)'
+                const brollStyle = {
+                  position: 'absolute',
+                  left: 0,
+                  top: topPos,
+                  width: '100%',
+                  height: '50%',
+                  objectFit: 'cover',
+                  transform: `translateY(${translateY}%)`,
+                  opacity: item.opacity ?? 1,
+                  zIndex: 15,
+                  WebkitMaskImage: featherMask,
+                  maskImage: featherMask,
+                }
+                return isVideo ? (
+                  <video key={item.id} src={api.assetUrl(asset)} className="absolute shadow-2xl z-15 object-cover" style={brollStyle} autoPlay muted loop playsInline />
+                ) : (
+                  <img key={item.id} src={api.assetUrl(asset)} className="absolute shadow-2xl z-15 object-cover" style={brollStyle} />
+                )
+              }
+
               const blendMode = item.blendMode || (item.type === 'overlay' ? 'screen' : 'normal')
               const style = {
-                left: (item.transform.x / width) * 100 + '%',
-                top: (item.transform.y / height) * 100 + '%',
-                width: (item.type === 'overlay' ? 100 : 50 * item.transform.scale) + '%',
-                opacity: item.opacity,
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                width: '100%',
+                height: '100%',
+                opacity: item.opacity ?? 1,
                 mixBlendMode: blendMode !== 'normal' ? blendMode : undefined,
+                zIndex: 15,
               }
+
               return isVideo ? (
-                <video key={item.id} src={api.assetUrl(asset)} className="absolute rounded-xl shadow-2xl z-10" style={style} autoPlay muted loop />
+                <video
+                  key={item.id}
+                  src={api.assetUrl(asset)}
+                  className="absolute shadow-2xl z-10 object-cover"
+                  style={style}
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                />
               ) : (
-                <img key={item.id} src={api.assetUrl(asset)} className="absolute rounded-xl shadow-2xl z-10" style={style} />
+                <img
+                  key={item.id}
+                  src={api.assetUrl(asset)}
+                  className="absolute shadow-2xl z-10 object-cover"
+                  style={style}
+                />
               )
             })}
 
             {/* Caption Overlays */}
             {captionItems.filter(activeAt).map((item) => {
               const strokeW = item.strokeWidth || 0
-              const textShadow = strokeW
-                ? `-${strokeW}px 0 ${item.strokeColor}, 0 ${strokeW}px ${item.strokeColor}, ${strokeW}px 0 ${item.strokeColor}, 0 -${strokeW}px ${item.strokeColor}`
-                : 'none'
+              const strokeColor = item.strokeColor || '#000000'
+              const webkitStroke = strokeW > 0 ? `${Math.max(1, Math.round(strokeW / 2))}px ${strokeColor}` : 'none'
               const words = (item.text || '').split(' ')
               return (
                 <div
                   key={item.id}
-                  className={`absolute left-0 right-0 flex justify-center px-6 z-10 ${item.position === 'top' ? 'top-6' : item.position === 'center' ? 'top-1/2 -translate-y-1/2' : 'bottom-8'
+                  className={`absolute left-0 right-0 flex justify-center px-6 z-20 ${item.position === 'top'
+                      ? 'top-6'
+                      : item.position === 'center'
+                        ? 'top-[60%] -translate-y-1/2'
+                        : 'bottom-8'
                     }`}
                 >
                   <span
                     key={`${item.id}-${item.start}`}
                     className={`rounded-xl px-3.5 py-1 text-center font-black leading-tight caption-anim-${item.animation || 'fade'}`}
                     style={{
-                      color: item.color || '#E11D48',
+                      color: item.color || '#FFFFFF',
                       fontSize: Math.max(16, (item.fontSize || 64) / 3.0),
                       fontFamily: item.fontFamily === 'Space Grotesk'
                         ? "'Space Grotesk', sans-serif"
@@ -239,7 +336,8 @@ export default function VideoPreview() {
                           : `'${item.fontFamily || 'Inter'}', sans-serif`,
                       fontWeight: 900,
                       backgroundColor: item.backgroundColor || 'transparent',
-                      textShadow,
+                      WebkitTextStroke: webkitStroke,
+                      paintOrder: 'stroke fill',
                       letterSpacing: item.case === 'upper' ? '0.04em' : 0,
                     }}
                   >
@@ -248,11 +346,13 @@ export default function VideoPreview() {
                       return (
                         <span
                           key={wIdx}
-                          className={isHighlighted ? 'rounded px-1.5 py-0.5 shadow-sm' : ''}
+                          className={isHighlighted ? 'rounded px-2 py-0.5 shadow-sm' : ''}
                           style={{
                             backgroundColor: isHighlighted ? item.highlightColor : undefined,
                             color: isHighlighted ? '#0F172A' : undefined,
+                            WebkitTextStroke: isHighlighted ? 'none' : undefined,
                             marginRight: wIdx < words.length - 1 ? '0.25em' : 0,
+                            display: 'inline-block',
                           }}
                         >
                           {w}

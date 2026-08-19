@@ -1,17 +1,14 @@
 {
-  "metadata": {
-    "id": "bold-viral-01",
-    "name": "Bold Viral",
-    "category": "Viral",
-    "description": "Big single-word punch captions with a bold orange highlight — built to stop the scroll.",
-    "createdAt": "2026-08-18",
-    "tags": [
-      "high-energy",
-      "hook-first"
-    ]
-  },
-  "thumbnail": "/api/templates/thumbnails/bold-viral-01.png",
+  "id": "bold-viral-01",
+  "name": "Bold Viral",
+  "category": "Viral",
+  "description": "Big single-word punch captions with a bold orange highlight — built to stop the scroll.",
+  "tags": ["high-energy", "hook-first"],
   "aspectRatio": "9:16",
+  "accentColor": "#FF6B00",
+  "thumbnailUrl": "/api/templates/thumbnails/bold-viral-01.jpg",
+  "overlayVideoUrl": "/api/templates/overlays/bold-viral-01.mp4",
+
   "caption": {
     "fontFamily": "Montserrat",
     "fontSize": 64,
@@ -26,24 +23,20 @@
     "wordsPerCaption": 1,
     "case": "upper"
   },
+
   "broll": {
     "enabled": true,
     "position": "full-screen",
-    "size": 1.0,
-    "transition": "fade",
+    "defaultScale": 1.0,
+    "transitionMs": 250,
     "frequency": "high"
   },
+
   "overlay": {
     "enabled": true,
     "blendMode": "screen",
     "opacity": 0.85,
-    "videoUrl": "/api/templates/overlays/bold-viral-01.mp4",
     "hookText": "Wait for it...",
     "watermarkPosition": "bottom-right"
-  },
-  "branding": {
-    "primary": "#FF6B00",
-    "secondary": "#0B0D12",
-    "highlight": "#FDE047"
   }
 }

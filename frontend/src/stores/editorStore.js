@@ -238,7 +238,7 @@ export const useEditorStore = create((set, get) => ({
       set({ isSearchingBroll: false, brollError: String(e) })
     }
   },
-  async attachBrollResult(result) {
+  async attachBrollResult(result, opts = {}) {
     const { projectId, brollTargetRange } = get()
     if (!brollTargetRange) return
     set({ isAttachingBroll: true, brollError: null })
@@ -248,6 +248,9 @@ export const useEditorStore = create((set, get) => ({
         start: brollTargetRange.start,
         duration: brollTargetRange.duration,
         label: brollTargetRange.label || 'broll',
+        layout: opts?.layout || 'full',
+        revealAnimation: opts?.revealAnimation || 'none',
+        revealDuration: opts?.revealDuration !== undefined ? opts.revealDuration : 0.5,
       })
       set((s) => ({
         timeline: res.timeline,

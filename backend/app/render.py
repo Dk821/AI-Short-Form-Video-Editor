@@ -50,7 +50,7 @@ def _caption_y_expr(position: str, height: int) -> str:
     if position == "top":
         return f"{int(height * 0.08)}"
     if position == "center":
-        return "(h-text_h)/2"
+        return f"{int(height * 0.60)}-(text_h/2)"
     return f"h-{int(height * 0.14)}-text_h"  # bottom (default)
 
 
@@ -116,19 +116,34 @@ def render_timeline(timeline: Timeline, assets: Dict[str, Asset], output_path: s
 
     main_idx = add_input(main_asset.url, ["-ss", str(main_item.sourceStart), "-t", str(main_item.duration)])
 
-    # Base video: scale to cover WxH, pad/crop to exact size, set fps.
-    filters: List[str] = []
-    filters.append(
-        f"[{main_idx}:v]scale={W}:{H}:force_original_aspect_ratio=increase,"
-        f"crop={W}:{H},fps={fps},setsar=1[base0]"
+    overlay_track = tracks_by_type.get("overlay")
+    all_overlay_items: List[TimelineItem] = [
+        it for it in (broll_track.items if broll_track else []) + (overlay_track.items if overlay_track else [])
+        if it.assetId or it.sourceUrl
+    ]
+
+    has_broll_item = any(
+        it.type == "broll" or getattr(it, "layout", "full") in ("split_top", "split_bottom")
+        for it in all_overlay_items
     )
+
+    filters: List[str] = []
+    if has_broll_item:
+        half_h = H // 2
+        filters.append(f"color=c=black:s={W}x{H}:r={fps}[bg0]")
+        filters.append(
+            f"[{main_idx}:v]scale={W}:{half_h}:force_original_aspect_ratio=increase,"
+            f"crop={W}:{half_h},fps={fps},setsar=1[main_half]"
+        )
+        filters.append(f"[bg0][main_half]overlay=x=0:y={half_h}[base0]")
+    else:
+        filters.append(
+            f"[{main_idx}:v]scale={W}:{H}:force_original_aspect_ratio=increase,"
+            f"crop={W}:{H},fps={fps},setsar=1[base0]"
+        )
     current = "base0"
 
     # Zoom moments (Milestone 3 auto-edit output, or manually added).
-    # Implemented as a second scaled+cropped copy of the SAME main input,
-    # overlaid full-frame only during the zoom window — a "punch in" that
-    # reuses the overlay machinery below rather than needing zoompan/
-    # per-frame filter expressions.
     zoom_items: List[TimelineItem] = zoom_track.items if zoom_track else []
     for i, item in enumerate(zoom_items):
         scale = max(item.transform.scale or 1.25, 1.01)
@@ -143,47 +158,90 @@ def render_timeline(timeline: Timeline, assets: Dict[str, Asset], output_path: s
         filters.append(f"[{current}][{pre}]overlay=x=0:y=0:enable='between(t,{item.start},{end})'[{nxt}]")
         current = nxt
 
-    # Broll & Overlay tracks. Items with no assetId are AI-suggested keywords
-    # (see template_engine.py) awaiting real footage — skip them rather
-    # than failing the whole export.
-    overlay_track = tracks_by_type.get("overlay")
-    all_overlay_items: List[TimelineItem] = [
-        it for it in (broll_track.items if broll_track else []) + (overlay_track.items if overlay_track else [])
-        if it.assetId
-    ]
+    # Broll & Overlay tracks.
     for i, item in enumerate(sorted(all_overlay_items, key=lambda it: it.zIndex)):
-        asset = assets[item.assetId]
-        is_video = asset.kind == "video"
+        asset = assets.get(item.assetId) if item.assetId else None
+        source_path = asset.url if asset else item.sourceUrl
+        if not source_path:
+            continue
+        is_video = (asset and asset.kind == "video") or (item.sourceUrl and item.sourceUrl.endswith((".mp4", ".webm")))
         extra = ["-t", str(item.duration)]
         if is_video:
             extra = ["-ss", str(item.sourceStart)] + extra
         else:
             extra = ["-loop", "1"] + extra
-        idx = add_input(asset.url, extra)
+        idx = add_input(source_path, extra)
 
-        scale = item.transform.scale
-        ow = int(W * (1.0 if item.type == "overlay" else 0.5) * scale)
         label_scaled = f"broll{i}s"
-        filters.append(
-            f"[{idx}:v]scale={ow}:-1,fps={fps},format=rgba,"
-            f"colorchannelmixer=aa={item.opacity}[{label_scaled}]"
-        )
-        x_expr = f"{int(item.transform.x)}"
-        y_expr = f"{int(item.transform.y)}"
         end = item.start + item.duration
         nxt = f"ov{i}"
+        layout = getattr(item, "layout", "full") or "full"
 
-        blend_mode = getattr(item, "blendMode", None) or ("screen" if item.type == "overlay" else "normal")
-        if blend_mode == "screen":
+        if item.type == "broll" or layout in ("split_top", "split_bottom"):
+            half_h = H // 2
+            feather_px = max(1, int(half_h * 0.15))
+            raw_label = f"broll{i}raw"
             filters.append(
-                f"[{current}][{label_scaled}]blend=all_mode=screen:"
+                f"[{idx}:v]scale={W}:{half_h}:force_original_aspect_ratio=increase,"
+                f"crop={W}:{half_h},fps={fps},format=rgba,"
+                f"colorchannelmixer=aa={item.opacity}[{raw_label}]"
+            )
+            a_expr = (
+                f"if(lt(Y,{feather_px}),255*(Y/{feather_px}),255)"
+                if layout == "split_bottom"
+                else f"if(gt(Y,{half_h - feather_px}),255*(1-(Y-({half_h - feather_px}))/{feather_px}),255)"
+            )
+            filters.append(
+                f"color=c=white:s={W}x{half_h},format=rgba[fmask{i}src];"
+                f"[fmask{i}src]geq=r='255':g='255':b='255':a='{a_expr}'[fmask{i}]"
+            )
+            filters.append(f"[{raw_label}][fmask{i}]alphamerge[{label_scaled}]")
+
+            rest_y = half_h if layout == "split_bottom" else 0
+            anim = getattr(item, "revealAnimation", "slide_down") or "slide_down"
+            dur = max(getattr(item, "revealDuration", 0.5) or 0.5, 0.01)
+
+            if anim != "none":
+                p_expr = f"min(max((t-{item.start})/{dur},0),1)"
+                ease_expr = f"sin({p_expr}*1.5707963)"
+                y_expr = f"{rest_y}-({half_h}*(1-{ease_expr}))"
+            else:
+                y_expr = f"{rest_y}"
+
+            filters.append(
+                f"[{current}][{label_scaled}]overlay=x=0:y='{y_expr}':"
                 f"enable='between(t,{item.start},{end})'[{nxt}]"
             )
         else:
+            scale = item.transform.scale
+            ow = int(W * (1.0 if item.type == "overlay" else 0.5) * scale)
             filters.append(
-                f"[{current}][{label_scaled}]overlay=x={x_expr}:y={y_expr}:"
-                f"enable='between(t,{item.start},{end})'[{nxt}]"
+                f"[{idx}:v]scale={ow}:-1,fps={fps},format=rgba,"
+                f"colorchannelmixer=aa={item.opacity}[{label_scaled}]"
             )
+            x_expr = f"{int(item.transform.x)}"
+            rest_y = int(item.transform.y)
+            anim = getattr(item, "revealAnimation", "slide_down") or "slide_down"
+            dur = max(getattr(item, "revealDuration", 0.5) or 0.5, 0.01)
+
+            if item.type == "broll" and anim != "none":
+                p_expr = f"min(max((t-{item.start})/{dur},0),1)"
+                ease_expr = f"sin({p_expr}*1.5707963)"
+                y_expr = f"{rest_y}-({H}*(1-{ease_expr}))"
+            else:
+                y_expr = f"{rest_y}"
+
+            blend_mode = getattr(item, "blendMode", None) or ("screen" if item.type == "overlay" else "normal")
+            if blend_mode == "screen":
+                filters.append(
+                    f"[{current}][{label_scaled}]blend=all_mode=screen:"
+                    f"enable='between(t,{item.start},{end})'[{nxt}]"
+                )
+            else:
+                filters.append(
+                    f"[{current}][{label_scaled}]overlay=x={x_expr}:y='{y_expr}':"
+                    f"enable='between(t,{item.start},{end})'[{nxt}]"
+                )
         current = nxt
 
     # Captions via drawtext. Style fields (font/color/stroke/background/
