@@ -1,9 +1,59 @@
 {
-  "id": "tiktok", "name": "TikTok", "category": "TikTok",
+  "id": "tiktok",
+  "name": "TikTok",
+  "category": "TikTok",
   "description": "Single-word punch captions, maximum contrast, fast pacing.",
-  "tags": ["fast", "punchy"], "aspectRatio": "9:16", "accentColor": "#FDE047",
+  "tags": ["fast", "punchy"],
+  "aspectRatio": "9:16",
+  "accentColor": "#FDE047",
   "thumbnailUrl": "/api/templates/thumbnails/tiktok.jpg",
-  "caption": {"fontFamily": "Space Grotesk", "fontSize": 92, "fontWeight": 800, "color": "#FDE047", "highlightColor": "#FFFFFF", "strokeColor": "#000000", "strokeWidth": 3, "position": "center", "alignment": "center", "animation": "word_by_word", "wordsPerCaption": 1, "case": "upper"},
-  "broll": {"enabled": true, "position": "center", "defaultScale": 0.6, "transitionMs": 150, "frequency": "high"},
-  "overlay": {"enabled": false}
+  "caption": {
+    "fontFamily": "Space Grotesk",
+    "fontSize": 92,
+    "fontWeight": 800,
+    "color": "#FDE047",
+    "highlightColor": "#FFFFFF",
+    "emphasisColor": "#FFFFFF",
+    "strokeColor": "#000000",
+    "strokeWidth": 3,
+    "position": "center",
+    "alignment": "center",
+    "animation": "pop",
+    "wordsPerCaption": 1,
+    "case": "upper"
+  },
+  "broll": {
+    "enabled": true,
+    "position": "center",
+    "layout": "full",
+    "defaultScale": 0.6,
+    "transitionMs": 150,
+    "frequency": "high",
+    "revealAnimation": "bounce_in",
+    "revealDuration": 0.4
+  },
+  "overlay": {
+    "enabled": false
+  },
+  "zoom": {
+    "enabled": true,
+    "minScale": 1.3,
+    "maxScale": 1.6,
+    "duration": 0.45,
+    "easing": "ease-out",
+    "triggerRules": ["emphasis", "punchline"]
+  },
+  "transition": {
+    "enabled": true,
+    "availableTypes": ["zoom", "wipe"],
+    "duration": 0.2,
+    "easing": "ease-out",
+    "sceneChangeBehavior": "auto"
+  },
+  "audio": {
+    "musicVolume": 0.35,
+    "sfxVolume": 0.9,
+    "ducking": true,
+    "duckingLevel": 0.2
+  }
 }

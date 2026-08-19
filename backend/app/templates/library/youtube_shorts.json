@@ -1,9 +1,59 @@
 {
-  "id": "youtube_shorts", "name": "YouTube Shorts", "category": "YouTube Shorts",
+  "id": "youtube_shorts",
+  "name": "YouTube Shorts",
+  "category": "YouTube Shorts",
   "description": "Bold centered karaoke-style captions tuned for Shorts retention.",
-  "tags": ["shorts", "karaoke"], "aspectRatio": "9:16", "accentColor": "#F87171",
+  "tags": ["shorts", "karaoke"],
+  "aspectRatio": "9:16",
+  "accentColor": "#F87171",
   "thumbnailUrl": "/api/templates/thumbnails/youtube_shorts.jpg",
-  "caption": {"fontFamily": "Space Grotesk", "fontSize": 84, "fontWeight": 800, "color": "#FFFFFF", "highlightColor": "#F87171", "strokeColor": "#000000", "strokeWidth": 2, "position": "center", "alignment": "center", "animation": "karaoke", "wordsPerCaption": 3, "case": "none"},
-  "broll": {"enabled": true, "position": "center", "defaultScale": 0.55, "transitionMs": 150, "frequency": "medium"},
-  "overlay": {"enabled": false}
+  "caption": {
+    "fontFamily": "Space Grotesk",
+    "fontSize": 84,
+    "fontWeight": 800,
+    "color": "#FFFFFF",
+    "highlightColor": "#F87171",
+    "emphasisColor": "#F87171",
+    "strokeColor": "#000000",
+    "strokeWidth": 2,
+    "position": "center",
+    "alignment": "center",
+    "animation": "karaoke",
+    "wordsPerCaption": 3,
+    "case": "none"
+  },
+  "broll": {
+    "enabled": true,
+    "position": "center",
+    "layout": "full",
+    "defaultScale": 0.55,
+    "transitionMs": 200,
+    "frequency": "medium",
+    "revealAnimation": "slide_down",
+    "revealDuration": 0.4
+  },
+  "overlay": {
+    "enabled": false
+  },
+  "zoom": {
+    "enabled": true,
+    "minScale": 1.15,
+    "maxScale": 1.4,
+    "duration": 0.5,
+    "easing": "ease-out",
+    "triggerRules": ["emphasis", "question"]
+  },
+  "transition": {
+    "enabled": true,
+    "availableTypes": ["zoom", "fade"],
+    "duration": 0.3,
+    "easing": "ease-out",
+    "sceneChangeBehavior": "auto"
+  },
+  "audio": {
+    "musicVolume": 0.25,
+    "sfxVolume": 0.8,
+    "ducking": true,
+    "duckingLevel": 0.2
+  }
 }

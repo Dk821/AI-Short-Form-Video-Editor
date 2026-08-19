@@ -7,7 +7,10 @@ import {
   Sparkles,
   Video,
   Loader2,
-  Clock
+  Clock,
+  Plus,
+  Minus,
+  RotateCcw
 } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
 
@@ -20,6 +23,18 @@ function formatDuration(sec) {
 
 const TABS = ['AI Generated', 'B-rolls', 'Stock Images']
 const FILTERS = ['Trendy', 'Free', 'Premium', 'My Uploads', 'Saved']
+
+const REVEAL_ANIMATIONS = [
+  { id: 'none', label: 'None' },
+  { id: 'slide_down', label: 'Slide Down' },
+  { id: 'slide_up', label: 'Slide Up' },
+  { id: 'slide_left', label: 'Slide Left' },
+  { id: 'slide_right', label: 'Slide Right' },
+  { id: 'fade_in', label: 'Fade In' },
+  { id: 'zoom_in', label: 'Zoom In' },
+  { id: 'wipe_down', label: 'Wipe Down' },
+  { id: 'bounce_in', label: 'Bounce In' },
+]
 
 export default function BrollPicker() {
   const {
@@ -38,17 +53,35 @@ export default function BrollPicker() {
   const [query, setQuery] = useState('')
   const [activeTab, setActiveTab] = useState('B-rolls')
   const [activeFilter, setActiveFilter] = useState('Trendy')
+  const currentTemplate = useEditorStore((s) => (s.currentTemplate ? s.currentTemplate() : null))
+  const brollConfig = currentTemplate?.broll || {}
+  const defaultLayout = brollConfig.layout || 'full'
+  const defaultReveal = brollConfig.revealAnimation || 'slide_down'
+  const defaultDuration = brollConfig.revealDuration !== undefined ? brollConfig.revealDuration : 0.5
+
+  const [selectedAnim, setSelectedAnim] = useState(defaultReveal)
+  const [customDuration, setCustomDuration] = useState(2)
   const debounceRef = useRef(null)
 
   useEffect(() => {
     setQuery(brollQuery)
-  }, [brollLibraryOpen])
+    if (brollTargetRange?.duration) {
+      setCustomDuration(Number(brollTargetRange.duration.toFixed(2)))
+    }
+  }, [brollLibraryOpen, brollTargetRange])
 
-  const currentTemplateId = useEditorStore((s) => s.project?.templateId)
-  const isSplitReaction = currentTemplateId === 'split_reaction'
-  const attachOpts = isSplitReaction
-    ? { layout: 'split_bottom', revealAnimation: 'slide_down', revealDuration: 0.5 }
-    : { layout: 'full', revealAnimation: 'none', revealDuration: 0.5 }
+  useEffect(() => {
+    if (brollConfig.revealAnimation) {
+      setSelectedAnim(brollConfig.revealAnimation)
+    }
+  }, [currentTemplate?.id, brollConfig.revealAnimation])
+
+  const attachOpts = {
+    layout: defaultLayout,
+    revealAnimation: selectedAnim,
+    revealDuration: defaultDuration,
+    duration: customDuration,
+  }
 
   if (!brollLibraryOpen) return null
 
@@ -77,11 +110,10 @@ export default function BrollPicker() {
                 <button
                   key={t}
                   onClick={() => setActiveTab(t)}
-                  className={`rounded-xl px-4 py-1.5 text-xs font-bold transition-all ${
-                    activeTab === t
+                  className={`rounded-xl px-4 py-1.5 text-xs font-bold transition-all ${activeTab === t
                       ? 'bg-primary text-white shadow-purpleGlow'
                       : 'text-slate-400 hover:text-slate-200'
-                  }`}
+                    }`}
                 >
                   {t}
                 </button>
@@ -95,11 +127,10 @@ export default function BrollPicker() {
               <button
                 key={f}
                 onClick={() => setActiveFilter(f)}
-                className={`flex items-center gap-1 rounded-xl px-3 py-1 text-xs font-bold transition-all ${
-                  activeFilter === f
+                className={`flex items-center gap-1 rounded-xl px-3 py-1 text-xs font-bold transition-all ${activeFilter === f
                     ? 'bg-primary text-white shadow-purpleGlow'
                     : 'border border-dark-border bg-dark-panel text-slate-400 hover:bg-dark-panel2 hover:text-slate-200'
-                }`}
+                  }`}
               >
                 {f === 'Trendy' && <Flame className="h-3 w-3 fill-white" />}
                 {f}
@@ -183,17 +214,17 @@ export default function BrollPicker() {
           )}
         </div>
 
-        {/* Right: Target Segment Preview Info */}
-        <div className="hidden lg:flex w-80 flex-col items-center justify-center bg-dark-rail p-8 text-center border-l border-dark-border">
+        {/* Right: Target Segment Preview Info & Reveal Settings */}
+        <div className="hidden lg:flex w-80 flex-col items-center justify-start bg-dark-rail p-6 text-center border-l border-dark-border overflow-y-auto">
           {brollTargetRange ? (
-            <div className="flex flex-col items-center gap-3">
+            <div className="flex flex-col items-center gap-4 w-full">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/20 text-primary shadow-purpleGlow">
                 <Video className="h-6 w-6" />
               </div>
               <div>
-                <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Target Scene Segment</h4>
-                <p className="text-sm font-bold text-slate-100 mt-1">
-                  {brollTargetRange.start.toFixed(1)}s — {(brollTargetRange.start + brollTargetRange.duration).toFixed(1)}s
+                <h4 className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Placement Target</h4>
+                <p className="text-xs font-bold text-slate-100 mt-1">
+                  Start: {brollTargetRange.start.toFixed(2)}s | End: {(brollTargetRange.start + customDuration).toFixed(2)}s
                 </p>
                 {brollTargetRange.label && (
                   <p className="text-xs text-slate-400 mt-2 bg-dark-panel border border-dark-border rounded-xl p-3 leading-relaxed">
@@ -201,9 +232,96 @@ export default function BrollPicker() {
                   </p>
                 )}
               </div>
+
+              {/* B-roll Duration Controls */}
+              <div className="flex flex-col gap-2.5 w-full mt-1 text-left bg-dark-panel p-3.5 rounded-2xl border border-dark-border">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">B-roll Duration</span>
+                  <span className="text-xs font-bold font-mono text-primary">{customDuration.toFixed(1)}s</span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCustomDuration((d) => Math.max(0.5, Number((d - 0.5).toFixed(1))))}
+                    className="flex h-8 w-8 items-center justify-center rounded-xl bg-dark-panel3 text-slate-300 hover:bg-dark-panel2 hover:text-white transition border border-dark-border"
+                    title="Decrease duration by 0.5s"
+                  >
+                    <Minus className="h-3.5 w-3.5" />
+                  </button>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0.3"
+                    value={customDuration}
+                    onChange={(e) => setCustomDuration(Math.max(0.3, parseFloat(e.target.value) || 0.5))}
+                    className="w-full rounded-xl border border-dark-border bg-dark-panel3 px-3 py-1.5 text-center text-xs font-bold font-mono text-slate-100 outline-none focus:border-primary transition"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setCustomDuration((d) => Number((d + 0.5).toFixed(1)))}
+                    className="flex h-8 w-8 items-center justify-center rounded-xl bg-dark-panel3 text-slate-300 hover:bg-dark-panel2 hover:text-white transition border border-dark-border"
+                    title="Increase duration by 0.5s"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+
+                {/* Quick Extend Buttons */}
+                <div className="grid grid-cols-4 gap-1 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setCustomDuration((d) => Number((d + 1.0).toFixed(1)))}
+                    className="rounded-lg bg-dark-panel3 px-2 py-1 text-[10px] font-bold text-slate-300 hover:bg-primary/20 hover:text-primary transition border border-dark-border"
+                  >
+                    +1.0s
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCustomDuration((d) => Number((d + 2.0).toFixed(1)))}
+                    className="rounded-lg bg-dark-panel3 px-2 py-1 text-[10px] font-bold text-slate-300 hover:bg-primary/20 hover:text-primary transition border border-dark-border"
+                  >
+                    +2.0s
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCustomDuration((d) => Number((d + 5.0).toFixed(1)))}
+                    className="rounded-lg bg-dark-panel3 px-2 py-1 text-[10px] font-bold text-slate-300 hover:bg-primary/20 hover:text-primary transition border border-dark-border"
+                  >
+                    +5.0s
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCustomDuration(Number(brollTargetRange.duration.toFixed(2)))}
+                    className="flex items-center justify-center rounded-lg bg-dark-panel3 px-2 py-1 text-[10px] font-bold text-slate-400 hover:bg-dark-panel2 hover:text-white transition border border-dark-border"
+                    title="Reset to scene length"
+                  >
+                    <RotateCcw className="h-2.5 w-2.5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Reveal Animation Selector */}
+              <div className="flex flex-col gap-2 w-full mt-1 text-left">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Reveal Animation</span>
+                <div className="grid grid-cols-2 gap-1.5 bg-dark-panel p-1.5 rounded-2xl border border-dark-border">
+                  {REVEAL_ANIMATIONS.map((anim) => (
+                    <button
+                      key={anim.id}
+                      onClick={() => setSelectedAnim(anim.id)}
+                      className={`rounded-xl px-2.5 py-1.5 text-[11px] font-bold transition-all text-center ${selectedAnim === anim.id
+                          ? 'bg-primary text-white shadow-purpleGlow'
+                          : 'text-slate-400 hover:bg-dark-panel2 hover:text-slate-200'
+                        }`}
+                    >
+                      {anim.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           ) : (
-            <div className="text-xs text-slate-500">Select a scene to place footage</div>
+            <div className="text-xs text-slate-500 my-auto">Select a scene to place footage</div>
           )}
         </div>
       </div>

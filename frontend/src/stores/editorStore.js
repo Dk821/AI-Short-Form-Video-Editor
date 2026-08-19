@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api } from '../services/api'
+import { segmentTranscriptIntoScenes, splitCaptionAtWord, mergeCaptionItems } from '../utils/transcript'
 
 function uid(prefix) {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}`
@@ -93,6 +94,12 @@ export const useEditorStore = create((set, get) => ({
     return mainItem ? s.assets.find((a) => a.id === mainItem.assetId) : null
   },
 
+  currentTemplate() {
+    const s = get()
+    if (!s.project?.templateId || !s.templates?.length) return null
+    return s.templates.find((t) => t.id === s.project.templateId) || null
+  },
+
   // Milestone 2, step 1: word-level transcription via Groq-hosted Whisper
   async transcribeMain() {
     const asset = get().mainAsset()
@@ -155,30 +162,72 @@ export const useEditorStore = create((set, get) => ({
   },
 
   // Scenes: group the word-level transcript into sentence-ish chunks for
-  // the Scenes panel. Pure derived data — not persisted — so it always
-  // reflects the current transcript.
+  // the Scenes panel. Derived strictly from canonical Whisper word timestamps.
   scenes() {
     const words = get().transcript?.words || []
-    if (!words.length) return []
-    const scenes = []
-    let cur = []
-    const flush = () => {
-      if (!cur.length) return
-      scenes.push({
-        id: `scene_${scenes.length}`,
-        start: cur[0].start,
-        end: cur[cur.length - 1].end,
-        text: cur.map((w) => w.word).join(' '),
-      })
-      cur = []
+    return segmentTranscriptIntoScenes(words)
+  },
+
+  splitCaptionItem(itemId, wordIndex) {
+    const s = get()
+    const track = s.trackByType('caption')
+    if (!track) return
+    const item = track.items.find((it) => it.id === itemId)
+    if (!item) return
+    const words = s.transcript?.words || []
+    const splitResult = splitCaptionAtWord(item, wordIndex, words)
+    if (!splitResult) return
+
+    const [firstItem, secondItem] = splitResult
+    const newItems = []
+    for (const it of track.items) {
+      if (it.id === itemId) {
+        newItems.push(firstItem, secondItem)
+      } else {
+        newItems.push(it)
+      }
     }
-    for (const w of words) {
-      cur.push(w)
-      const endsSentence = /[.!?]$/.test(w.word)
-      if (endsSentence || cur.length >= 14) flush()
+
+    set((state) => ({
+      timeline: {
+        ...state.timeline,
+        tracks: state.timeline.tracks.map((t) =>
+          t.type === 'caption' ? { ...t, items: newItems } : t
+        ),
+      },
+    }))
+    get().persist()
+  },
+
+  mergeCaptionPair(firstItemId, secondItemId) {
+    const s = get()
+    const track = s.trackByType('caption')
+    if (!track) return
+    const firstItem = track.items.find((it) => it.id === firstItemId)
+    const secondItem = track.items.find((it) => it.id === secondItemId)
+    if (!firstItem || !secondItem) return
+
+    const merged = mergeCaptionItems(firstItem, secondItem)
+    const newItems = []
+    for (const it of track.items) {
+      if (it.id === firstItemId) {
+        newItems.push(merged)
+      } else if (it.id === secondItemId) {
+        // merged into firstItem, omit
+      } else {
+        newItems.push(it)
+      }
     }
-    flush()
-    return scenes
+
+    set((state) => ({
+      timeline: {
+        ...state.timeline,
+        tracks: state.timeline.tracks.map((t) =>
+          t.type === 'caption' ? { ...t, items: newItems } : t
+        ),
+      },
+    }))
+    get().persist()
   },
 
   brollItemsInRange(start, end) {
@@ -243,10 +292,11 @@ export const useEditorStore = create((set, get) => ({
     if (!brollTargetRange) return
     set({ isAttachingBroll: true, brollError: null })
     try {
+      const duration = opts?.duration && opts.duration > 0 ? opts.duration : brollTargetRange.duration
       const res = await api.attachBroll(projectId, {
         downloadUrl: result.downloadUrl,
         start: brollTargetRange.start,
-        duration: brollTargetRange.duration,
+        duration,
         label: brollTargetRange.label || 'broll',
         layout: opts?.layout || 'full',
         revealAnimation: opts?.revealAnimation || 'none',

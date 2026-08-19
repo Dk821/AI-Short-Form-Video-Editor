@@ -1,9 +1,60 @@
 {
-  "id": "education", "name": "Education", "category": "Education",
+  "id": "education",
+  "name": "Education",
+  "category": "Education",
   "description": "Slower-paced, high-legibility captions for explainer and how-to content.",
-  "tags": ["explainer", "legible"], "aspectRatio": "4:5", "accentColor": "#5EEAD4",
+  "tags": ["explainer", "legible"],
+  "aspectRatio": "4:5",
+  "accentColor": "#5EEAD4",
   "thumbnailUrl": "/api/templates/thumbnails/education.jpg",
-  "caption": {"fontFamily": "Inter", "fontSize": 52, "fontWeight": 600, "color": "#FFFFFF", "highlightColor": "#5EEAD4", "strokeColor": null, "strokeWidth": 0, "backgroundColor": "#00000066", "position": "bottom", "alignment": "center", "animation": "fade", "wordsPerCaption": 6, "case": "none"},
-  "broll": {"enabled": true, "position": "top-right", "defaultScale": 0.5, "transitionMs": 300, "frequency": "low"},
-  "overlay": {"enabled": false}
+  "caption": {
+    "fontFamily": "Inter",
+    "fontSize": 52,
+    "fontWeight": 600,
+    "color": "#FFFFFF",
+    "highlightColor": "#5EEAD4",
+    "emphasisColor": "#5EEAD4",
+    "strokeColor": null,
+    "strokeWidth": 0,
+    "backgroundColor": "#00000066",
+    "position": "bottom",
+    "alignment": "center",
+    "animation": "fade",
+    "wordsPerCaption": 6,
+    "case": "none"
+  },
+  "broll": {
+    "enabled": true,
+    "position": "top-right",
+    "layout": "full",
+    "defaultScale": 0.5,
+    "transitionMs": 300,
+    "frequency": "low",
+    "revealAnimation": "slide_down",
+    "revealDuration": 0.5
+  },
+  "overlay": {
+    "enabled": false
+  },
+  "zoom": {
+    "enabled": true,
+    "minScale": 1.1,
+    "maxScale": 1.3,
+    "duration": 0.6,
+    "easing": "ease-out",
+    "triggerRules": ["emphasis", "question"]
+  },
+  "transition": {
+    "enabled": true,
+    "availableTypes": ["fade", "slide"],
+    "duration": 0.4,
+    "easing": "ease-in-out",
+    "sceneChangeBehavior": "auto"
+  },
+  "audio": {
+    "musicVolume": 0.2,
+    "sfxVolume": 0.6,
+    "ducking": true,
+    "duckingLevel": 0.15
+  }
 }

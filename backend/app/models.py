@@ -34,6 +34,7 @@ class TimelineItem(BaseModel):
 
     # caption-only fields
     text: Optional[str] = None
+    words: Optional[List[dict]] = None
     fontFamily: Optional[str] = "Inter"
     fontWeight: Optional[int] = 600
     fontSize: Optional[int] = 64
@@ -57,7 +58,7 @@ class TimelineItem(BaseModel):
 
     # split-screen layout & reveal animation fields
     layout: Optional[Literal["full", "split_top", "split_bottom"]] = "full"
-    revealAnimation: Optional[Literal["none", "slide_down", "slide_up"]] = "none"
+    revealAnimation: Optional[Literal["none", "slide_down", "slide_up", "slide_left", "slide_right", "fade_in", "zoom_in", "wipe_down", "bounce_in"]] = "none"
     revealDuration: Optional[float] = 0.5
 
 
@@ -111,6 +112,7 @@ class Project(BaseModel):
     transcript: Optional[Transcript] = None
     templateId: Optional[str] = None
     brollStyle: Optional[dict] = None
+    zoomStyle: Optional[dict] = None
     createdAt: Optional[str] = None
 
 

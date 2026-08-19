@@ -1,9 +1,59 @@
 {
-  "id": "gaming", "name": "Gaming", "category": "Gaming",
+  "id": "gaming",
+  "name": "Gaming",
+  "category": "Gaming",
   "description": "Neon high-contrast captions built for fast gameplay footage.",
-  "tags": ["gameplay", "neon"], "aspectRatio": "9:16", "accentColor": "#A3E635",
+  "tags": ["gameplay", "neon"],
+  "aspectRatio": "9:16",
+  "accentColor": "#A3E635",
   "thumbnailUrl": "/api/templates/thumbnails/gaming.jpg",
-  "caption": {"fontFamily": "Space Grotesk", "fontSize": 80, "fontWeight": 800, "color": "#A3E635", "highlightColor": "#FFFFFF", "strokeColor": "#000000", "strokeWidth": 3, "position": "top", "alignment": "center", "animation": "bounce", "wordsPerCaption": 2, "case": "upper"},
-  "broll": {"enabled": true, "position": "center", "defaultScale": 0.55, "transitionMs": 150, "frequency": "medium"},
-  "overlay": {"enabled": false}
+  "caption": {
+    "fontFamily": "Space Grotesk",
+    "fontSize": 80,
+    "fontWeight": 800,
+    "color": "#A3E635",
+    "highlightColor": "#FFFFFF",
+    "emphasisColor": "#A3E635",
+    "strokeColor": "#000000",
+    "strokeWidth": 3,
+    "position": "top",
+    "alignment": "center",
+    "animation": "bounce",
+    "wordsPerCaption": 2,
+    "case": "upper"
+  },
+  "broll": {
+    "enabled": true,
+    "position": "center",
+    "layout": "full",
+    "defaultScale": 0.55,
+    "transitionMs": 150,
+    "frequency": "medium",
+    "revealAnimation": "zoom_in",
+    "revealDuration": 0.35
+  },
+  "overlay": {
+    "enabled": false
+  },
+  "zoom": {
+    "enabled": true,
+    "minScale": 1.3,
+    "maxScale": 1.7,
+    "duration": 0.4,
+    "easing": "ease-out",
+    "triggerRules": ["emphasis", "punchline", "question"]
+  },
+  "transition": {
+    "enabled": true,
+    "availableTypes": ["wipe", "zoom"],
+    "duration": 0.2,
+    "easing": "ease-out",
+    "sceneChangeBehavior": "auto"
+  },
+  "audio": {
+    "musicVolume": 0.4,
+    "sfxVolume": 0.95,
+    "ducking": true,
+    "duckingLevel": 0.15
+  }
 }

@@ -15,6 +15,7 @@
     "fontWeight": 800,
     "color": "#FFFFFF",
     "highlightColor": "#FF6B00",
+    "emphasisColor": "#FF6B00",
     "strokeColor": "#000000",
     "strokeWidth": 3,
     "position": "center",
@@ -27,9 +28,14 @@
   "broll": {
     "enabled": true,
     "position": "full-screen",
+    "layout": "full",
     "defaultScale": 1.0,
     "transitionMs": 250,
-    "frequency": "high"
+    "frequency": "high",
+    "revealAnimation": "zoom_in",
+    "revealDuration": 0.4,
+    "maxDuration": 5.0,
+    "cooldown": 2.0
   },
 
   "overlay": {
@@ -38,5 +44,29 @@
     "opacity": 0.85,
     "hookText": "Wait for it...",
     "watermarkPosition": "bottom-right"
+  },
+
+  "zoom": {
+    "enabled": true,
+    "minScale": 1.2,
+    "maxScale": 1.6,
+    "duration": 0.5,
+    "easing": "ease-out",
+    "triggerRules": ["emphasis", "punchline", "question"]
+  },
+
+  "transition": {
+    "enabled": true,
+    "availableTypes": ["zoom", "fade"],
+    "duration": 0.3,
+    "easing": "ease-out",
+    "sceneChangeBehavior": "auto"
+  },
+
+  "audio": {
+    "musicVolume": 0.25,
+    "sfxVolume": 0.9,
+    "ducking": true,
+    "duckingLevel": 0.15
   }
 }

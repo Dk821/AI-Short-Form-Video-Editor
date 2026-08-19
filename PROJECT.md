@@ -103,15 +103,20 @@ It features word-level speech transcription via Groq Whisper API, dynamic preset
 2. **Media Upload & Asset Probing**: Ingest user video/audio files with automated duration, dimension, and codec resolution probing using `ffprobe`.
 3. **Word-Level Speech Transcription**: Audio extraction to mono 16kHz WAV and precise timestamp generation down to individual words using Groq Whisper, supporting optional language codes.
 4. **Automated Styled Captions**: Generate styled multi-word or single-word captions (Hormozi style, Viral, TikTok, Podcast) with customizable fonts, highlight colors, clean WebKit stroke outlines, background boxes, positioning, and animation effects (`fade`, `pop`, `bounce`, `karaoke`, `word_by_word`, `slide_up`).
-5. **Preset Video Template System**: Apply preset video styles (Bold Viral, Podcast, Gaming, TikTok, YouTube Shorts, Instagram Reels, Business, Education) with dynamic layout adjustments, default aspect ratio adjustments, and overlay video loops (film grain, light leaks) using screen blending.
+5. **Submagic-Style Complete Video Preset System**:
+   - Templates act as complete editing presets defining Captions, B-roll, Overlays, Camera Zooms, Transitions, Audio ducking, and Layout safe areas.
+   - Core principle: **AI decides WHERE and WHEN. Template decides HOW. Timeline stores WHAT is rendered.**
+   - Includes 10 complete presets in `templates/library/`: Bold Viral, Viral, Podcast, YouTube Shorts, Instagram Reels, TikTok, Business, Gaming, Education, Split Reaction.
 6. **AI Auto-Edit Engine**:
    - Analyzes audio transcripts to extract hooks, titles, and social descriptions.
    - Plans camera punch-in zooms, B-roll stock footage overlays, and caption emphasis.
    - Dual provider engine: OpenRouter (`openai/gpt-4o-mini`) with direct fallback to Google Gemini (`gemini-3.7-flash`).
    - Enforces a **hard validation gate** to filter out overlapping moments, bad timestamps, or invalid zoom scales (`[1.05, 2.0]`).
-7. **Pexels Stock B-Roll Search & Library**: Search portrait MP4 stock footage directly from Pexels API, preview thumbnails/video loops in-browser, and attach overlays to timeline tracks manually or via AI.
+   - Integrates with the active template via `template_engine.py` to inherit template-specific B-roll reveal animations (`zoom_in`, `slide_down`, `fade_in`, `bounce_in`), layout placement, and zoom scale clamp boundaries.
+7. **Pexels Stock B-Roll Search & Library**: Search portrait MP4 stock footage directly from Pexels API, preview thumbnails/video loops in-browser, and attach overlays to timeline tracks manually or via AI with automatic template default inheritance.
 8. **Interactive React Preview & Scenes Panel**:
-   - Multi-track HTML5 video preview with synchronized dynamic caption rendering, live zoom scale transforms, and B-roll overlays.
+   - Multi-track HTML5 video preview (`VideoPreview.jsx`) with synchronized dynamic caption rendering, live zoom scale transforms, template overlay loops, and split-screen duet/reaction layout positioning (`SplitScreenLayout.jsx`).
+   - Centralized Zustand store resolution via `currentTemplate()` helper in `editorStore.js` ensuring safe template metadata resolution and error-free canvas rendering.
    - Sentence-level transcript scene segmentation view (`Scenes.jsx`) allowing quick manual zoom toggles and targeted B-roll attachment.
 9. **Server-Side FFmpeg Exporter**: Background multi-track video renderer generating high-quality MP4 exports using a single FFmpeg filtergraph with zoom punch-ins, B-roll overlays, text drawtext filters, and mixed audio tracks.
 

@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
 import { api } from '../../services/api'
+import { BrollAnimation, computeBaseVideoStyle } from './animations'
 
 export default function VideoPreview() {
   const { timeline, assets, currentTime, isPlaying, setCurrentTime, setPlaying } = useEditorStore()
@@ -29,48 +30,40 @@ export default function VideoPreview() {
   const mainItem = videoTrack?.items?.[0]
   const mainAsset = mainItem && assets.find((a) => a.id === mainItem.assetId)
 
-  const brollItems = timeline?.tracks?.find((t) => t.type === 'broll')?.items || []
-  const overlayItems = timeline?.tracks?.find((t) => t.type === 'overlay')?.items || []
-  const captionItems = timeline?.tracks?.find((t) => t.type === 'caption')?.items || []
-  const zoomItems = timeline?.tracks?.find((t) => t.type === 'zoom')?.items || []
+  const brollTrack = timeline?.tracks?.find((t) => t.type === 'broll')
+  const captionTrack = timeline?.tracks?.find((t) => t.type === 'caption')
+  const overlayTrack = timeline?.tracks?.find((t) => t.type === 'overlay')
+  const zoomTrack = timeline?.tracks?.find((t) => t.type === 'zoom')
 
-  const currentTemplateId = useEditorStore((s) => s.project?.templateId)
-  const templates = useEditorStore((s) => s.templates)
-  const currentTemplate = templates.find((t) => t.id === currentTemplateId)
+  const brollItems = brollTrack?.items || []
+  const captionItems = captionTrack?.items || []
+  const overlayItems = overlayTrack?.items || []
+  const zoomItems = zoomTrack?.items || []
 
-  const { width, height } = timeline?.project || { width: 1080, height: 1920 }
-  const duration = timeline?.project?.duration || 14.18
+  const currentTemplate = useEditorStore((s) => (typeof s?.currentTemplate === 'function' ? s.currentTemplate() : null))
+  const width = timeline?.project?.aspectRatio === '16:9' ? 1920 : 1080
+  const height = timeline?.project?.aspectRatio === '16:9' ? 1080 : 1920
+  const duration = timeline?.project?.duration || mainItem?.duration || 10
 
   useEffect(() => {
-    const v = videoRef.current
-    if (!v) return
-    if (isPlaying) {
-      v.muted = isMuted
-      v.volume = isMuted ? 0 : volume
-      v.play().catch(() => {
-        // Fallback for strict browser autoplay policy
-        v.muted = true
-        v.play().catch(() => { })
-      })
-    } else {
-      v.pause()
+    if (!videoRef.current) return
+    const diff = Math.abs(videoRef.current.currentTime - currentTime)
+    if (diff > 0.3) {
+      videoRef.current.currentTime = currentTime
     }
-  }, [isPlaying])
+    if (isPlaying && videoRef.current.paused) {
+      videoRef.current.play().catch(() => {})
+    } else if (!isPlaying && !videoRef.current.paused) {
+      videoRef.current.pause()
+    }
+  }, [currentTime, isPlaying])
 
   useEffect(() => {
-    const v = videoRef.current
-    if (!v) return
-    v.muted = isMuted
-    v.volume = isMuted ? 0 : volume
+    if (videoRef.current) {
+      videoRef.current.muted = isMuted
+      videoRef.current.volume = volume
+    }
   }, [isMuted, volume])
-
-  useEffect(() => {
-    const v = videoRef.current
-    if (!v) return
-    if (Math.abs(v.currentTime - currentTime) > 0.3) {
-      v.currentTime = currentTime
-    }
-  }, [currentTime])
 
   function onTimeUpdate(e) {
     if (isPlaying) setCurrentTime(e.target.currentTime)
@@ -86,22 +79,7 @@ export default function VideoPreview() {
   const activeBroll = brollItems.find(activeAt)
   const activeSplitItem = activeBroll || overlayItems.filter(activeAt).find((it) => it.layout === 'split_top' || it.layout === 'split_bottom')
 
-  const baseStyle = activeSplitItem
-    ? {
-        position: 'absolute',
-        left: 0,
-        top: activeSplitItem.layout === 'split_top' ? '50%' : '50%',
-        width: '100%',
-        height: '50%',
-        objectFit: 'cover',
-        transform: `scale(${zoomScale})`,
-      }
-    : {
-        height: '100%',
-        width: '100%',
-        objectFit: 'cover',
-        transform: `scale(${zoomScale})`,
-      }
+  const baseStyle = computeBaseVideoStyle({ activeSplitItem, zoomScale })
 
   function formatTime(s) {
     const m = Math.floor(s / 60)
@@ -225,84 +203,15 @@ export default function VideoPreview() {
                     />
                   )
                 }
-                if (item.type === 'broll' && item.keyword && item.keyword.trim()) {
-                  return (
-                    <div
-                      key={item.id}
-                      className="absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full bg-slate-950/90 backdrop-blur-md px-3.5 py-1 text-xs font-bold text-primary shadow-lg"
-                    >
-                      🔍 B-roll: {item.keyword}
-                    </div>
-                  )
-                }
                 return null
               }
-              const isVideo = asset.kind === 'video'
-              const isBroll = item.type === 'broll'
-              const layout = item.layout || (isBroll ? 'split_top' : 'full')
-              const anim = item.revealAnimation || 'slide_down' // Guaranteed TOP -> DOWN
-              const dur = item.revealDuration || 0.5
-
-              // Top-to-bottom smooth cubic ease-out slide calculation
-              const p = Math.min(Math.max((currentTime - item.start) / dur, 0), 1)
-              const ease = 1 - Math.pow(1 - p, 3) // smooth deceleration
-              const slideOffset = -(1 - ease) * 100 // starts -100% above frame, slides vertically down to 0%
-
-              if (isBroll || layout === 'split_top' || layout === 'split_bottom') {
-                const translateY = anim === 'none' ? 0 : slideOffset
-                const topPos = layout === 'split_bottom' ? '50%' : '0%'
-                const featherMask = layout === 'split_bottom'
-                  ? 'linear-gradient(to top, rgba(0,0,0,1) 80%, rgba(0,0,0,0) 100%)'
-                  : 'linear-gradient(to bottom, rgba(0,0,0,1) 80%, rgba(0,0,0,0) 100%)'
-                const brollStyle = {
-                  position: 'absolute',
-                  left: 0,
-                  top: topPos,
-                  width: '100%',
-                  height: '50%',
-                  objectFit: 'cover',
-                  transform: `translateY(${translateY}%)`,
-                  opacity: item.opacity ?? 1,
-                  zIndex: 15,
-                  WebkitMaskImage: featherMask,
-                  maskImage: featherMask,
-                }
-                return isVideo ? (
-                  <video key={item.id} src={api.assetUrl(asset)} className="absolute shadow-2xl z-15 object-cover" style={brollStyle} autoPlay muted loop playsInline />
-                ) : (
-                  <img key={item.id} src={api.assetUrl(asset)} className="absolute shadow-2xl z-15 object-cover" style={brollStyle} />
-                )
-              }
-
-              const blendMode = item.blendMode || (item.type === 'overlay' ? 'screen' : 'normal')
-              const style = {
-                position: 'absolute',
-                left: 0,
-                top: 0,
-                width: '100%',
-                height: '100%',
-                opacity: item.opacity ?? 1,
-                mixBlendMode: blendMode !== 'normal' ? blendMode : undefined,
-                zIndex: 15,
-              }
-
-              return isVideo ? (
-                <video
+              return (
+                <BrollAnimation
                   key={item.id}
+                  item={item}
+                  asset={asset}
+                  currentTime={currentTime}
                   src={api.assetUrl(asset)}
-                  className="absolute shadow-2xl z-10 object-cover"
-                  style={style}
-                  autoPlay
-                  muted
-                  loop
-                  playsInline
-                />
-              ) : (
-                <img
-                  key={item.id}
-                  src={api.assetUrl(asset)}
-                  className="absolute shadow-2xl z-10 object-cover"
-                  style={style}
                 />
               )
             })}

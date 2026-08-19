@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   MessageSquare,
   Film,
@@ -156,7 +156,11 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
     setCurrentTime,
     runAutoEdit,
     autoEditResult,
+    splitCaptionItem,
+    mergeCaptionPair,
   } = useEditorStore()
+
+  const currentTemplate = useEditorStore((s) => (typeof s?.currentTemplate === 'function' ? s.currentTemplate() : null))
 
   // Style State
   const [activeCategory, setActiveCategory] = useState('All')
@@ -193,6 +197,30 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
     badTakes: false,
     eyeContact: false,
   })
+
+  // Synchronize state when an active template is present or changed
+  useEffect(() => {
+    if (!currentTemplate) return
+    const cap = currentTemplate.caption || {}
+    if (cap.fontFamily) setFontFamily(cap.fontFamily)
+    if (cap.color) setFontColor(cap.color)
+    if (cap.strokeColor) setStrokeColor(cap.strokeColor)
+    if (cap.strokeWidth !== undefined) {
+      setStrokeWeight(cap.strokeWidth >= 3 ? 'Large' : cap.strokeWidth === 2 ? 'Medium' : cap.strokeWidth === 1 ? 'Small' : 'None')
+    }
+    if (cap.case) setUppercase(cap.case === 'upper')
+    if (cap.position) {
+      setPositionY(cap.position === 'top' ? 15 : cap.position === 'center' ? 50 : 73)
+    }
+    if (cap.wordsPerCaption) setDisplayWords(cap.wordsPerCaption)
+    if (cap.animation) setAnimation(cap.animation !== 'none')
+
+    setBoostState((s) => ({
+      ...s,
+      zooms: currentTemplate.zoom?.enabled ?? s.zooms,
+      broll: currentTemplate.broll?.enabled ?? s.broll,
+    }))
+  }, [currentTemplate?.id])
 
   // Hidden caption items set & active options popup menu
   const [hiddenItems, setHiddenItems] = useState(new Set())
@@ -919,12 +947,7 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
                             onClick={() => {
                               const words = (item.text || '').split(' ')
                               if (words.length > 1) {
-                                const mid = Math.ceil(words.length / 2)
-                                const firstHalf = words.slice(0, mid).join(' ')
-                                const secondHalf = words.slice(mid).join(' ')
-                                const halfDur = item.duration / 2
-                                updateItem(item.id, { text: firstHalf, duration: halfDur })
-                                addCaption(secondHalf)
+                                splitCaptionItem(item.id, Math.ceil(words.length / 2))
                               }
                               setActiveOptionMenuId(null)
                             }}
@@ -1217,11 +1240,7 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
                           {selectedWordInfo.wordIndex > 0 && selectedWordInfo.wordIndex < words.length && (
                             <button
                               onClick={() => {
-                                const firstHalf = words.slice(0, selectedWordInfo.wordIndex).join(' ')
-                                const secondHalf = words.slice(selectedWordInfo.wordIndex).join(' ')
-                                const halfDur = item.duration / 2
-                                updateItem(item.id, { text: firstHalf, duration: halfDur })
-                                addCaption(secondHalf)
+                                splitCaptionItem(item.id, selectedWordInfo.wordIndex)
                                 setSelectedWordInfo(null)
                               }}
                               className="flex items-center gap-1 rounded-lg bg-amber-950/40 px-2 py-1 text-[10px] font-bold text-amber-300 hover:bg-amber-900/60 border border-amber-500/40 transition ml-auto"
@@ -1260,10 +1279,7 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
-                          const mergedText = `${item.text || ''} ${nextItem.text || ''}`.trim()
-                          const mergedDuration = Math.max(0.1, (nextItem.start + nextItem.duration) - item.start)
-                          updateItem(item.id, { text: mergedText, duration: mergedDuration })
-                          removeItem(nextItem.id)
+                          mergeCaptionPair(item.id, nextItem.id)
                         }}
                         className="flex h-5 w-5 items-center justify-center rounded-full border border-dark-border bg-dark-panel2 text-slate-400 shadow-md hover:scale-110 hover:border-primary/60 hover:bg-primary hover:text-white transition-all group/plus"
                         title="Merge current subtitle layer with layer below"
@@ -1293,7 +1309,7 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
           <BoostCard
             icon={Wand2}
             title="AI Subtitles & Captions"
-            description="Auto-generate styled subtitles"
+            description={currentTemplate ? `Preset: ${currentTemplate.name}` : 'Auto-generate styled subtitles'}
             active={boostState.captions}
             onToggle={() => toggleBoost('captions')}
             actions={[
@@ -1397,10 +1413,15 @@ function TrimTab() {
           <p className="text-[11px] text-slate-400">Select a video, B-roll, or caption item on the timeline.</p>
         </div>
       ) : (
-        <div className="flex flex-col gap-3 rounded-2xl bg-dark-panel2 p-4 shadow-lg shadow-black/40">
-          <span className="rounded-lg bg-dark-panel3 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-300 w-fit">
-            Type: {selectedItem.type}
-          </span>
+        <div className="flex flex-col gap-3.5 rounded-2xl bg-dark-panel2 p-4 shadow-lg shadow-black/40">
+          <div className="flex items-center justify-between">
+            <span className="rounded-lg bg-primary/20 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-primary border border-primary/30">
+              Type: {selectedItem.type}
+            </span>
+            <span className="text-[11px] font-mono font-bold text-slate-400">
+              End: {(selectedItem.start + selectedItem.duration).toFixed(2)}s
+            </span>
+          </div>
 
           {selectedItem.type === 'caption' && (
             <textarea
@@ -1417,21 +1438,254 @@ function TrimTab() {
               type="number"
               step="0.1"
               value={selectedItem.start}
-              onChange={(e) => updateItem(selectedItem.id, { start: parseFloat(e.target.value) || 0 })}
-              className="w-24 rounded-xl bg-dark-panel3 px-2.5 py-1 text-xs font-bold text-slate-100 outline-none shadow-inner"
+              onChange={(e) => updateItem(selectedItem.id, { start: Math.max(0, parseFloat(e.target.value) || 0) })}
+              className="w-24 rounded-xl bg-dark-panel3 px-2.5 py-1 text-xs font-bold text-slate-100 outline-none shadow-inner border border-dark-border"
             />
           </label>
 
-          <label className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-300">
-            Duration (s)
-            <input
-              type="number"
-              step="0.1"
-              value={selectedItem.duration}
-              onChange={(e) => updateItem(selectedItem.id, { duration: parseFloat(e.target.value) || 0.1 })}
-              className="w-24 rounded-xl bg-dark-panel3 px-2.5 py-1 text-xs font-bold text-slate-100 outline-none shadow-inner"
-            />
-          </label>
+          <div className="flex flex-col gap-1.5">
+            <label className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-300">
+              <span>Duration (s)</span>
+              <input
+                type="number"
+                step="0.1"
+                min="0.1"
+                value={selectedItem.duration}
+                onChange={(e) => updateItem(selectedItem.id, { duration: Math.max(0.1, parseFloat(e.target.value) || 0.1) })}
+                className="w-24 rounded-xl bg-dark-panel3 px-2.5 py-1 text-xs font-bold text-slate-100 outline-none shadow-inner border border-dark-border"
+              />
+            </label>
+
+            {/* Quick Duration Increase & Extension Buttons */}
+            <div className="flex flex-col gap-1 pt-1">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Quick Increase / Adjust</span>
+              <div className="grid grid-cols-5 gap-1">
+                <button
+                  type="button"
+                  onClick={() => updateItem(selectedItem.id, { duration: Math.max(0.1, Number((selectedItem.duration - 0.5).toFixed(2))) })}
+                  className="rounded-lg bg-dark-panel3 px-1.5 py-1 text-[10px] font-bold text-slate-300 hover:bg-dark-panel hover:text-white transition border border-dark-border text-center"
+                  title="Decrease 0.5s"
+                >
+                  -0.5s
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateItem(selectedItem.id, { duration: Number((selectedItem.duration + 0.5).toFixed(2)) })}
+                  className="rounded-lg bg-dark-panel3 px-1.5 py-1 text-[10px] font-bold text-slate-300 hover:bg-primary/20 hover:text-primary transition border border-dark-border text-center"
+                  title="Increase 0.5s"
+                >
+                  +0.5s
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateItem(selectedItem.id, { duration: Number((selectedItem.duration + 1.0).toFixed(2)) })}
+                  className="rounded-lg bg-dark-panel3 px-1.5 py-1 text-[10px] font-bold text-slate-300 hover:bg-primary/20 hover:text-primary transition border border-dark-border text-center"
+                  title="Increase 1s"
+                >
+                  +1.0s
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateItem(selectedItem.id, { duration: Number((selectedItem.duration + 2.0).toFixed(2)) })}
+                  className="rounded-lg bg-dark-panel3 px-1.5 py-1 text-[10px] font-bold text-slate-300 hover:bg-primary/20 hover:text-primary transition border border-dark-border text-center"
+                  title="Increase 2s"
+                >
+                  +2.0s
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateItem(selectedItem.id, { duration: Number((selectedItem.duration + 5.0).toFixed(2)) })}
+                  className="rounded-lg bg-dark-panel3 px-1.5 py-1 text-[10px] font-bold text-slate-300 hover:bg-primary/20 hover:text-primary transition border border-dark-border text-center"
+                  title="Increase 5s"
+                >
+                  +5.0s
+                </button>
+              </div>
+
+              <div className="grid grid-cols-4 gap-1 mt-1">
+                <button
+                  type="button"
+                  onClick={() => updateItem(selectedItem.id, { duration: 3.0 })}
+                  className="rounded-lg bg-dark-panel3 px-1.5 py-1 text-[10px] font-bold text-slate-400 hover:bg-dark-panel hover:text-white transition border border-dark-border text-center"
+                >
+                  3.0s
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateItem(selectedItem.id, { duration: 5.0 })}
+                  className="rounded-lg bg-dark-panel3 px-1.5 py-1 text-[10px] font-bold text-slate-400 hover:bg-dark-panel hover:text-white transition border border-dark-border text-center"
+                >
+                  5.0s
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateItem(selectedItem.id, { duration: 8.0 })}
+                  className="rounded-lg bg-dark-panel3 px-1.5 py-1 text-[10px] font-bold text-slate-400 hover:bg-dark-panel hover:text-white transition border border-dark-border text-center"
+                >
+                  8.0s
+                </button>
+                <button
+                  type="button"
+                  onClick={() => updateItem(selectedItem.id, { duration: 10.0 })}
+                  className="rounded-lg bg-dark-panel3 px-1.5 py-1 text-[10px] font-bold text-slate-400 hover:bg-dark-panel hover:text-white transition border border-dark-border text-center"
+                >
+                  10.0s
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Manual Effect & Animation Controls */}
+          {(selectedItem.type === 'broll' || selectedItem.type === 'overlay') && (
+            <div className="flex flex-col gap-2.5 pt-2 border-t border-dark-border">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Reveal Animation Effect</span>
+              <div className="grid grid-cols-3 gap-1 bg-dark-panel3 p-1.5 rounded-xl border border-dark-border">
+                {[
+                  { id: 'none', label: 'None' },
+                  { id: 'slide_down', label: 'Slide Down' },
+                  { id: 'slide_up', label: 'Slide Up' },
+                  { id: 'slide_left', label: 'Slide Left' },
+                  { id: 'slide_right', label: 'Slide Right' },
+                  { id: 'fade_in', label: 'Fade In' },
+                  { id: 'zoom_in', label: 'Zoom In' },
+                  { id: 'wipe_down', label: 'Wipe Down' },
+                  { id: 'bounce_in', label: 'Bounce In' },
+                ].map((anim) => {
+                  const currentAnim = selectedItem.revealAnimation || 'slide_down'
+                  const isActive = currentAnim === anim.id
+                  return (
+                    <button
+                      key={anim.id}
+                      type="button"
+                      onClick={() => updateItem(selectedItem.id, { revealAnimation: anim.id })}
+                      className={`rounded-lg px-2 py-1 text-[10px] font-bold transition-all text-center ${
+                        isActive ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400 hover:bg-dark-panel2 hover:text-slate-200'
+                      }`}
+                    >
+                      {anim.label}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mt-1">Screen Layout</span>
+              <div className="grid grid-cols-3 gap-1 bg-dark-panel3 p-1 rounded-xl border border-dark-border">
+                {[
+                  { id: 'full', label: 'Full Screen' },
+                  { id: 'split_top', label: 'Top Split' },
+                  { id: 'split_bottom', label: 'Bottom Split' },
+                ].map((l) => {
+                  const currentLayout = selectedItem.layout || 'full'
+                  const isActive = currentLayout === l.id
+                  return (
+                    <button
+                      key={l.id}
+                      type="button"
+                      onClick={() => updateItem(selectedItem.id, { layout: l.id })}
+                      className={`rounded-lg px-2 py-1 text-[10px] font-bold transition-all text-center ${
+                        isActive ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400 hover:bg-dark-panel2 hover:text-slate-200'
+                      }`}
+                    >
+                      {l.label}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <label className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-300 mt-1">
+                <span>Reveal Speed (s)</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max="2.0"
+                  value={selectedItem.revealDuration !== undefined ? selectedItem.revealDuration : 0.5}
+                  onChange={(e) => updateItem(selectedItem.id, { revealDuration: Math.max(0.1, parseFloat(e.target.value) || 0.5) })}
+                  className="w-20 rounded-xl bg-dark-panel3 px-2 py-1 text-xs font-bold text-slate-100 outline-none border border-dark-border"
+                />
+              </label>
+            </div>
+          )}
+
+          {selectedItem.type === 'caption' && (
+            <div className="flex flex-col gap-2.5 pt-2 border-t border-dark-border">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Caption Animation Effect</span>
+              <div className="grid grid-cols-3 gap-1 bg-dark-panel3 p-1.5 rounded-xl border border-dark-border">
+                {[
+                  { id: 'none', label: 'None' },
+                  { id: 'fade', label: 'Fade' },
+                  { id: 'pop', label: 'Pop' },
+                  { id: 'bounce', label: 'Bounce' },
+                  { id: 'karaoke', label: 'Karaoke' },
+                  { id: 'word_by_word', label: 'Word' },
+                  { id: 'slide_up', label: 'Slide Up' },
+                ].map((anim) => {
+                  const currentAnim = selectedItem.animation || 'fade'
+                  const isActive = currentAnim === anim.id
+                  return (
+                    <button
+                      key={anim.id}
+                      type="button"
+                      onClick={() => updateItem(selectedItem.id, { animation: anim.id })}
+                      className={`rounded-lg px-2 py-1 text-[10px] font-bold transition-all text-center ${
+                        isActive ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400 hover:bg-dark-panel2 hover:text-slate-200'
+                      }`}
+                    >
+                      {anim.label}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mt-1">Caption Position</span>
+              <div className="grid grid-cols-3 gap-1 bg-dark-panel3 p-1 rounded-xl border border-dark-border">
+                {[
+                  { id: 'top', label: 'Top' },
+                  { id: 'center', label: 'Center' },
+                  { id: 'bottom', label: 'Bottom' },
+                ].map((pos) => {
+                  const currentPos = selectedItem.position || 'bottom'
+                  const isActive = currentPos === pos.id
+                  return (
+                    <button
+                      key={pos.id}
+                      type="button"
+                      onClick={() => updateItem(selectedItem.id, { position: pos.id })}
+                      className={`rounded-lg px-2 py-1 text-[10px] font-bold transition-all text-center ${
+                        isActive ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400 hover:bg-dark-panel2 hover:text-slate-200'
+                      }`}
+                    >
+                      {pos.label}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {selectedItem.type === 'zoom' && (
+            <div className="flex flex-col gap-2 pt-2 border-t border-dark-border">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Zoom Scale Factor</span>
+              <div className="flex items-center gap-1.5">
+                {[1.15, 1.25, 1.4, 1.6, 2.0].map((s) => {
+                  const currentScale = selectedItem.transform?.scale || 1.3
+                  const isActive = Math.abs(currentScale - s) < 0.05
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => updateItem(selectedItem.id, { transform: { ...(selectedItem.transform || {}), scale: s } })}
+                      className={`flex-1 rounded-lg py-1 text-[10px] font-bold border transition ${
+                        isActive ? 'bg-primary text-white border-primary shadow-purpleGlow' : 'bg-dark-panel3 text-slate-400 border-dark-border hover:text-white'
+                      }`}
+                    >
+                      {s}x
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           <button
             onClick={() => removeItem(selectedItem.id)}

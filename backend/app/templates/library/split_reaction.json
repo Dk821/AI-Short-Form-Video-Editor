@@ -14,6 +14,7 @@
     "fontWeight": 800,
     "color": "#FFFFFF",
     "highlightColor": "#EC4899",
+    "emphasisColor": "#EC4899",
     "strokeColor": "#000000",
     "strokeWidth": 3,
     "position": "bottom",
@@ -34,5 +35,26 @@
   },
   "overlay": {
     "enabled": false
+  },
+  "zoom": {
+    "enabled": false,
+    "minScale": 1.0,
+    "maxScale": 1.0,
+    "duration": 0.5,
+    "easing": "ease-out",
+    "triggerRules": []
+  },
+  "transition": {
+    "enabled": true,
+    "availableTypes": ["slide", "wipe"],
+    "duration": 0.3,
+    "easing": "ease-out",
+    "sceneChangeBehavior": "auto"
+  },
+  "audio": {
+    "musicVolume": 0.25,
+    "sfxVolume": 0.8,
+    "ducking": true,
+    "duckingLevel": 0.2
   }
 }

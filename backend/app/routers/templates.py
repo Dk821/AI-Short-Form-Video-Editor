@@ -2,13 +2,16 @@
 Template System (Template System, step 2).
 
 Endpoints:
-  GET  /api/templates                    -> full VideoTemplate list (for the picker grid)
-  GET  /api/templates/{template_id}      -> one template
-  POST /api/projects/{id}/apply-template -> apply a template to a project:
+  GET  /api/templates                       -> full VideoTemplate list (for the picker grid)
+  GET  /api/templates/{template_id}         -> one template
+  POST /api/projects/{id}/apply-template    -> apply a template to a project:
       - sets the project's aspect ratio (ProjectMeta width/height)
       - regenerates captions from the style bundle IF a transcript exists
-      - stores broll style prefs on the project for later broll placement
+      - stores broll style prefs AND zoom style prefs on the project for
+        later broll placement / zoom defaults
       - remembers templateId on the project so the editor can show "Applied: X"
+  GET  /api/projects/{id}/template-config   -> returns the full VideoTemplate for
+      the project's active templateId (frontend reads this to drive UI defaults)
 
 Applying a template never touches uploaded assets or destroys existing
 broll/audio/zoom items — it only replaces the caption track and project
@@ -110,10 +113,33 @@ def apply_template(project_id: str, body: ApplyTemplateBody):
     # already placed.
     project["brollStyle"] = template.broll.model_dump()
 
+    # Zoom style prefs — same pattern as brollStyle. The frontend reads
+    # this to initialise the zoom UI and the auto-edit engine uses it to
+    # clamp zoom scale to the template's min/max range.
+    project["zoomStyle"] = template.zoom.model_dump()
+
     _apply_overlay_video(project, template)
 
     db.put_project(project_id, project)
     return project
+
+
+@router.get("/projects/{project_id}/template-config")
+def get_project_template_config(project_id: str):
+    """Return the full VideoTemplate for the project's active templateId.
+    The frontend calls this to drive UI defaults (caption form values,
+    broll picker defaults, zoom panel state) without having to parse the
+    entire template list on every render."""
+    project = db.get_project(project_id)
+    if not project:
+        raise HTTPException(404, "Project not found")
+    template_id = project.get("templateId")
+    if not template_id:
+        return None  # 200 + null body — no template applied yet
+    template = get_template(template_id)
+    if not template:
+        return None
+    return template.model_dump()
 
 
 def _find_or_create_track(project: dict, track_type: str) -> dict:

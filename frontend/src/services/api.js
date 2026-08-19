@@ -39,6 +39,7 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ templateId, regenerateCaptions }),
     }).then(j),
+  getTemplateConfig: (projectId) => fetch(`${BASE}/projects/${projectId}/template-config`).then(j),
   // B-roll Library — search/browse (no download) + attach (downloads the pick)
   searchBroll: (query, page = 1) =>
     fetch(`${BASE}/broll/search?${new URLSearchParams({ query: query || '', page })}`).then(j),

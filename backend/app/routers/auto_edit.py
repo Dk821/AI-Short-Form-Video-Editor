@@ -5,6 +5,7 @@ from ..ai_edit import call_auto_edit, validate_decisions
 from ..models import Timeline
 from ..pexels import fetch_broll_asset
 from ..template_engine import apply_edit_decisions
+from ..templates import get_template
 
 router = APIRouter(prefix="/api/projects", tags=["auto-edit"])
 
@@ -50,7 +51,14 @@ def auto_edit(project_id: str):
             broll_assets[m.keyword] = asset["id"]
             project["assets"].append(asset)
 
-    timeline = apply_edit_decisions(timeline, decisions, broll_assets=broll_assets)
+    # Pass the active template so the engine can apply the correct
+    # broll layout/scale/reveal and zoom scale range (template decides HOW).
+    template_id = project.get("templateId")
+    template = get_template(template_id) if template_id else None
+
+    timeline = apply_edit_decisions(
+        timeline, decisions, broll_assets=broll_assets, template=template
+    )
     project["timeline"] = timeline.model_dump()
     db.put_project(project_id, project)
 

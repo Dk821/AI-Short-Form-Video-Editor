@@ -240,14 +240,50 @@ Algorithm Steps:
             activeBrolls   = brolls.filter(b => t >= b.start && t <= b.start + b.duration)
 
   Step 3: Dynamic CSS Scale & Overlay Transform Injection
+          - Queries `useEditorStore.currentTemplate()` to safely resolve active template overlay parameters (blend mode, opacity, overlayVideoUrl).
           - Applies active zoom CSS transform: `transform: scale(zoom.scale)` on base video wrapper.
+          - Computes `computeBaseVideoStyle` layout bounds for split-screen duet/reaction layouts, dynamically displacing main video top offset (`top: 50%` for split_top, `top: 0%` for split_bottom).
           - Dynamically renders active B-roll overlay video positioned on top canvas layer.
           - Computes word-by-word highlight karaoke animation for caption text based on transcript word timestamps.
 
   Step 4: Sentence Scene Segmentation (Scenes.jsx / editorStore.js)
           - Groups word-level transcript into sentence-level chunks based on punctuation regex (`/[.!?]$/`) 
-            or maximum 14 words per group.
-          - Computes scene `start` (first word start) and `end` (last word end).
-          - Powers the Scenes UI panel for instant zoom toggling and scene-level B-roll attachments.
+            or maximum 14 words per scene.
+          - Enables one-click camera punch-in zoom toggle on exact scene boundaries.
+          - Provides direct Pexels B-roll search attachment targeting scene time range [scene.start, scene.end].
+
+
+8. SUBMAGIC-STYLE TEMPLATE PRESET ENGINE & LIFECYCLE
+-------------------------------------------------------------------------------
+Location: backend/app/templates/schema.py, registry.py, library/*.json, template_engine.py
+
+Core Principle:
+  AI decides WHERE and WHEN.
+  Template decides HOW.
+  Timeline stores WHAT is rendered.
+
+Lifecycle & Execution:
+  Step 1: Preset Definition
+          Template is a complete editing preset JSON defining 7 distinct subsystems:
+          - CAPTIONS: fontFamily, fontSize, fontWeight, color, highlightColor, emphasisColor, stroke, shadow, position, case, animation, wordsPerCaption.
+          - B-ROLL: enabled, position, layout, defaultScale, transitionMs, frequency, revealAnimation (zoom_in, slide_down, fade_in, bounce_in), revealDuration.
+          - OVERLAYS: enabled, blendMode (screen), opacity, overlayVideoUrl, hookText.
+          - ZOOM: enabled, minScale, maxScale, duration, easing, triggerRules.
+          - TRANSITIONS: enabled, availableTypes, duration, easing.
+          - AUDIO: musicVolume, sfxVolume, ducking (enabled, duckingLevel).
+          - LAYOUT: aspectRatio, safeAreaTop, safeAreaBottom, speakerPosition.
+
+  Step 2: AI Edit Execution (WHERE/WHEN)
+          AI analyzes speech transcript timestamps and returns structured moments (zoom, broll_suggestion, emphasis_caption).
+
+  Step 3: Template Engine Mutation (HOW)
+          `apply_edit_decisions(timeline, decisions, template)`:
+          - Queries `template.broll` to inject layout, reveal animation, duration, and scale into timeline broll items.
+          - Queries `template.zoom` to clamp zoom scale between [minScale, maxScale] and respect zoom enable flag.
+          - Queries `template.caption` to set emphasis colors.
+
+  Step 4: Unified Timeline Storage (WHAT)
+          Timeline stores explicit timeline items with all styling properties embedded directly on each item.
+          Preview and FFmpeg renderer execute directly from Timeline JSON without template ambiguity.
 
 ===============================================================================

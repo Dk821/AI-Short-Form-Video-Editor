@@ -1,9 +1,61 @@
 {
-  "id": "business", "name": "Business", "category": "Business",
+  "id": "business",
+  "name": "Business",
+  "category": "Business",
   "description": "Understated, professional captions for corporate and B2B content.",
-  "tags": ["corporate", "minimal"], "aspectRatio": "16:9", "accentColor": "#60A5FA",
+  "tags": ["corporate", "minimal"],
+  "aspectRatio": "16:9",
+  "accentColor": "#60A5FA",
   "thumbnailUrl": "/api/templates/thumbnails/business.jpg",
-  "caption": {"fontFamily": "Inter", "fontSize": 48, "fontWeight": 600, "color": "#F1F5F9", "highlightColor": "#60A5FA", "strokeColor": null, "strokeWidth": 0, "backgroundColor": "#0B0D12CC", "position": "bottom", "alignment": "left", "animation": "fade", "wordsPerCaption": 6, "case": "none"},
-  "broll": {"enabled": true, "position": "bottom-left", "defaultScale": 0.4, "transitionMs": 350, "frequency": "low"},
-  "overlay": {"enabled": false, "watermarkPosition": "top-right"}
+  "caption": {
+    "fontFamily": "Inter",
+    "fontSize": 48,
+    "fontWeight": 600,
+    "color": "#F1F5F9",
+    "highlightColor": "#60A5FA",
+    "emphasisColor": "#60A5FA",
+    "strokeColor": null,
+    "strokeWidth": 0,
+    "backgroundColor": "#0B0D12CC",
+    "position": "bottom",
+    "alignment": "left",
+    "animation": "fade",
+    "wordsPerCaption": 6,
+    "case": "none"
+  },
+  "broll": {
+    "enabled": true,
+    "position": "bottom-left",
+    "layout": "full",
+    "defaultScale": 0.4,
+    "transitionMs": 350,
+    "frequency": "low",
+    "revealAnimation": "fade_in",
+    "revealDuration": 0.6
+  },
+  "overlay": {
+    "enabled": false,
+    "watermarkPosition": "top-right"
+  },
+  "zoom": {
+    "enabled": false,
+    "minScale": 1.05,
+    "maxScale": 1.15,
+    "duration": 0.7,
+    "easing": "ease-in-out",
+    "triggerRules": []
+  },
+  "transition": {
+    "enabled": true,
+    "availableTypes": ["fade"],
+    "duration": 0.5,
+    "easing": "ease-in-out",
+    "sceneChangeBehavior": "auto"
+  },
+  "audio": {
+    "musicVolume": 0.15,
+    "sfxVolume": 0.4,
+    "ducking": true,
+    "duckingLevel": 0.05
+  }
 }

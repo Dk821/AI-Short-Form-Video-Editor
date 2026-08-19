@@ -1,9 +1,60 @@
 {
-  "id": "podcast", "name": "Podcast", "category": "Podcast",
+  "id": "podcast",
+  "name": "Podcast",
+  "category": "Podcast",
   "description": "Clean readable phrases for long-form talking-head clips.",
-  "tags": ["talking-head", "clean"], "aspectRatio": "9:16", "accentColor": "#5EEAD4",
+  "tags": ["talking-head", "clean"],
+  "aspectRatio": "9:16",
+  "accentColor": "#5EEAD4",
   "thumbnailUrl": "/api/templates/thumbnails/podcast.jpg",
-  "caption": {"fontFamily": "Inter", "fontSize": 58, "fontWeight": 600, "color": "#FFFFFF", "highlightColor": "#5EEAD4", "strokeColor": null, "strokeWidth": 0, "backgroundColor": "#00000066", "position": "bottom", "alignment": "center", "animation": "fade", "wordsPerCaption": 5, "case": "none"},
-  "broll": {"enabled": true, "position": "top-right", "defaultScale": 0.5, "transitionMs": 300, "frequency": "low"},
-  "overlay": {"enabled": false}
+  "caption": {
+    "fontFamily": "Inter",
+    "fontSize": 58,
+    "fontWeight": 600,
+    "color": "#FFFFFF",
+    "highlightColor": "#5EEAD4",
+    "emphasisColor": "#5EEAD4",
+    "strokeColor": null,
+    "strokeWidth": 0,
+    "backgroundColor": "#00000066",
+    "position": "bottom",
+    "alignment": "center",
+    "animation": "fade",
+    "wordsPerCaption": 5,
+    "case": "none"
+  },
+  "broll": {
+    "enabled": true,
+    "position": "top-right",
+    "layout": "full",
+    "defaultScale": 0.5,
+    "transitionMs": 300,
+    "frequency": "low",
+    "revealAnimation": "fade_in",
+    "revealDuration": 0.5
+  },
+  "overlay": {
+    "enabled": false
+  },
+  "zoom": {
+    "enabled": false,
+    "minScale": 1.1,
+    "maxScale": 1.2,
+    "duration": 0.6,
+    "easing": "ease-out",
+    "triggerRules": []
+  },
+  "transition": {
+    "enabled": true,
+    "availableTypes": ["fade"],
+    "duration": 0.4,
+    "easing": "ease-in-out",
+    "sceneChangeBehavior": "auto"
+  },
+  "audio": {
+    "musicVolume": 0.15,
+    "sfxVolume": 0.5,
+    "ducking": true,
+    "duckingLevel": 0.1
+  }
 }

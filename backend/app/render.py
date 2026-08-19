@@ -167,7 +167,7 @@ def render_timeline(timeline: Timeline, assets: Dict[str, Asset], output_path: s
         is_video = (asset and asset.kind == "video") or (item.sourceUrl and item.sourceUrl.endswith((".mp4", ".webm")))
         extra = ["-t", str(item.duration)]
         if is_video:
-            extra = ["-ss", str(item.sourceStart)] + extra
+            extra = ["-stream_loop", "-1", "-ss", str(item.sourceStart)] + extra
         else:
             extra = ["-loop", "1"] + extra
         idx = add_input(source_path, extra)
@@ -177,39 +177,81 @@ def render_timeline(timeline: Timeline, assets: Dict[str, Asset], output_path: s
         nxt = f"ov{i}"
         layout = getattr(item, "layout", "full") or "full"
 
-        if item.type == "broll" or layout in ("split_top", "split_bottom"):
-            half_h = H // 2
-            feather_px = max(1, int(half_h * 0.15))
-            raw_label = f"broll{i}raw"
-            filters.append(
-                f"[{idx}:v]scale={W}:{half_h}:force_original_aspect_ratio=increase,"
-                f"crop={W}:{half_h},fps={fps},format=rgba,"
-                f"colorchannelmixer=aa={item.opacity}[{raw_label}]"
-            )
-            a_expr = (
-                f"if(lt(Y,{feather_px}),255*(Y/{feather_px}),255)"
-                if layout == "split_bottom"
-                else f"if(gt(Y,{half_h - feather_px}),255*(1-(Y-({half_h - feather_px}))/{feather_px}),255)"
-            )
-            filters.append(
-                f"color=c=white:s={W}x{half_h},format=rgba[fmask{i}src];"
-                f"[fmask{i}src]geq=r='255':g='255':b='255':a='{a_expr}'[fmask{i}]"
-            )
-            filters.append(f"[{raw_label}][fmask{i}]alphamerge[{label_scaled}]")
-
-            rest_y = half_h if layout == "split_bottom" else 0
+        if item.type == "broll" or layout in ("full", "split_top", "split_bottom"):
+            target_h = H if layout == "full" else (H // 2)
+            rest_y = (H // 2) if layout == "split_bottom" else 0
             anim = getattr(item, "revealAnimation", "slide_down") or "slide_down"
             dur = max(getattr(item, "revealDuration", 0.5) or 0.5, 0.01)
+            p_expr = f"min(max((t-{item.start})/{dur},0),1)"
 
-            if anim != "none":
-                p_expr = f"min(max((t-{item.start})/{dur},0),1)"
+            raw_label = f"broll{i}raw"
+
+            if anim == "fade_in":
+                filters.append(
+                    f"[{idx}:v]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
+                    f"crop={W}:{target_h},fps={fps},format=rgba,"
+                    f"colorchannelmixer=aa={item.opacity},"
+                    f"fade=t=in:st={item.start}:d={dur}:alpha=1[{raw_label}]"
+                )
+            elif anim in ("zoom_in", "pop"):
+                filters.append(
+                    f"[{idx}:v]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
+                    f"crop={W}:{target_h},fps={fps},format=rgba,"
+                    f"scale=w='max(16,int({W}*max(0.05,{p_expr})))':h='max(16,int({target_h}*max(0.05,{p_expr})))':eval=frame,"
+                    f"pad={W}:{target_h}:'({W}-iw)/2':'({target_h}-ih)/2':color=black@0,"
+                    f"colorchannelmixer=aa={item.opacity}[{raw_label}]"
+                )
+            elif anim == "wipe_down":
+                filters.append(
+                    f"[{idx}:v]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
+                    f"crop=w={W}:h='max(1,int({target_h}*{p_expr}))':x=0:y=0:exact=1,fps={fps},format=rgba,"
+                    f"colorchannelmixer=aa={item.opacity}[{raw_label}]"
+                )
+            else:
+                filters.append(
+                    f"[{idx}:v]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
+                    f"crop={W}:{target_h},fps={fps},format=rgba,"
+                    f"colorchannelmixer=aa={item.opacity}[{raw_label}]"
+                )
+
+            if layout in ("split_top", "split_bottom"):
+                feather_px = max(1, int(target_h * 0.15))
+                a_expr = (
+                    f"if(lt(Y,{feather_px}),255*(Y/{feather_px}),255)"
+                    if layout == "split_bottom"
+                    else f"if(gt(Y,{target_h - feather_px}),255*(1-(Y-({target_h - feather_px}))/{feather_px}),255)"
+                )
+                filters.append(
+                    f"color=c=white:s={W}x{target_h},format=rgba[fmask{i}src];"
+                    f"[fmask{i}src]geq=r='255':g='255':b='255':a='{a_expr}'[fmask{i}]"
+                )
+                filters.append(f"[{raw_label}][fmask{i}]alphamerge[{label_scaled}]")
+            else:
+                label_scaled = raw_label
+
+            x_expr = "0"
+            if anim == "slide_down":
                 ease_expr = f"sin({p_expr}*1.5707963)"
-                y_expr = f"{rest_y}-({half_h}*(1-{ease_expr}))"
+                y_expr = f"{rest_y}-({target_h}*(1-{ease_expr}))"
+            elif anim == "slide_up":
+                ease_expr = f"sin({p_expr}*1.5707963)"
+                y_expr = f"{rest_y}+({target_h}*(1-{ease_expr}))"
+            elif anim == "slide_left":
+                ease_expr = f"sin({p_expr}*1.5707963)"
+                y_expr = f"{rest_y}"
+                x_expr = f"{W}*(1-{ease_expr})"
+            elif anim == "slide_right":
+                ease_expr = f"sin({p_expr}*1.5707963)"
+                y_expr = f"{rest_y}"
+                x_expr = f"-{W}*(1-{ease_expr})"
+            elif anim == "bounce_in":
+                bounce_p = f"if(lt({p_expr},0.7), ({p_expr}/0.7)*1.15, 1.15 - (({p_expr}-0.7)/0.3)*0.15)"
+                y_expr = f"{rest_y}-({target_h}*(1-{bounce_p}))"
             else:
                 y_expr = f"{rest_y}"
 
             filters.append(
-                f"[{current}][{label_scaled}]overlay=x=0:y='{y_expr}':"
+                f"[{current}][{label_scaled}]overlay=x='{x_expr}':y='{y_expr}':"
                 f"enable='between(t,{item.start},{end})'[{nxt}]"
             )
         else:
@@ -219,17 +261,22 @@ def render_timeline(timeline: Timeline, assets: Dict[str, Asset], output_path: s
                 f"[{idx}:v]scale={ow}:-1,fps={fps},format=rgba,"
                 f"colorchannelmixer=aa={item.opacity}[{label_scaled}]"
             )
-            x_expr = f"{int(item.transform.x)}"
+            rest_x = int(item.transform.x)
             rest_y = int(item.transform.y)
+            x_expr = f"{rest_x}"
+            y_expr = f"{rest_y}"
             anim = getattr(item, "revealAnimation", "slide_down") or "slide_down"
             dur = max(getattr(item, "revealDuration", 0.5) or 0.5, 0.01)
 
             if item.type == "broll" and anim != "none":
                 p_expr = f"min(max((t-{item.start})/{dur},0),1)"
                 ease_expr = f"sin({p_expr}*1.5707963)"
-                y_expr = f"{rest_y}-({H}*(1-{ease_expr}))"
-            else:
-                y_expr = f"{rest_y}"
+                if anim == "slide_left":
+                    x_expr = f"{rest_x}+({W}*(1-{ease_expr}))"
+                elif anim == "slide_right":
+                    x_expr = f"{rest_x}-({W}*(1-{ease_expr}))"
+                else:
+                    y_expr = f"{rest_y}-({H}*(1-{ease_expr}))"
 
             blend_mode = getattr(item, "blendMode", None) or ("screen" if item.type == "overlay" else "normal")
             if blend_mode == "screen":
@@ -239,7 +286,7 @@ def render_timeline(timeline: Timeline, assets: Dict[str, Asset], output_path: s
                 )
             else:
                 filters.append(
-                    f"[{current}][{label_scaled}]overlay=x={x_expr}:y='{y_expr}':"
+                    f"[{current}][{label_scaled}]overlay=x='{x_expr}':y='{y_expr}':"
                     f"enable='between(t,{item.start},{end})'[{nxt}]"
                 )
         current = nxt

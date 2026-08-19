@@ -1,9 +1,60 @@
 {
-  "id": "instagram_reels", "name": "Instagram Reels", "category": "Instagram Reels",
+  "id": "instagram_reels",
+  "name": "Instagram Reels",
+  "category": "Instagram Reels",
   "description": "Soft rounded captions with a gradient-friendly accent, tuned for Reels.",
-  "tags": ["reels", "trendy"], "aspectRatio": "9:16", "accentColor": "#F472B6",
+  "tags": ["reels", "trendy"],
+  "aspectRatio": "9:16",
+  "accentColor": "#F472B6",
   "thumbnailUrl": "/api/templates/thumbnails/instagram_reels.jpg",
-  "caption": {"fontFamily": "Inter", "fontSize": 68, "fontWeight": 700, "color": "#FFFFFF", "highlightColor": "#F472B6", "strokeColor": null, "strokeWidth": 0, "backgroundColor": "#00000055", "position": "bottom", "alignment": "center", "animation": "slide_up", "wordsPerCaption": 4, "case": "none"},
-  "broll": {"enabled": true, "position": "full-screen", "defaultScale": 1.0, "transitionMs": 250, "frequency": "medium"},
-  "overlay": {"enabled": false}
+  "caption": {
+    "fontFamily": "Inter",
+    "fontSize": 68,
+    "fontWeight": 700,
+    "color": "#FFFFFF",
+    "highlightColor": "#F472B6",
+    "emphasisColor": "#F472B6",
+    "strokeColor": null,
+    "strokeWidth": 0,
+    "backgroundColor": "#00000055",
+    "position": "bottom",
+    "alignment": "center",
+    "animation": "slide_up",
+    "wordsPerCaption": 4,
+    "case": "none"
+  },
+  "broll": {
+    "enabled": true,
+    "position": "full",
+    "layout": "full",
+    "defaultScale": 0.55,
+    "transitionMs": 250,
+    "frequency": "medium",
+    "revealAnimation": "slide_up",
+    "revealDuration": 0.5
+  },
+  "overlay": {
+    "enabled": false
+  },
+  "zoom": {
+    "enabled": true,
+    "minScale": 1.1,
+    "maxScale": 1.35,
+    "duration": 0.6,
+    "easing": "ease-out",
+    "triggerRules": ["emphasis"]
+  },
+  "transition": {
+    "enabled": true,
+    "availableTypes": ["slide", "fade"],
+    "duration": 0.35,
+    "easing": "ease-in-out",
+    "sceneChangeBehavior": "auto"
+  },
+  "audio": {
+    "musicVolume": 0.3,
+    "sfxVolume": 0.7,
+    "ducking": true,
+    "duckingLevel": 0.25
+  }
 }
