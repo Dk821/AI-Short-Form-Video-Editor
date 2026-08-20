@@ -177,8 +177,15 @@ Algorithm Steps:
           - Audio/SFX Tracks: `-ss sourceStart -t duration -i audio.mp4`
 
   Step 2: Base Video Stream Normalization
-          Converts primary video to project canvas bounds (W x H) and target fps:
+          Converts primary video to project canvas bounds (W x H) and target fps — ALWAYS
+          full-frame, never pre-cropped to a half, regardless of whether a split-layout
+          b-roll exists anywhere in the timeline:
           `[0:v]scale=W:H:force_original_aspect_ratio=increase,crop=W:H,fps=fps,setsar=1[base0]`
+          Immediately after, one overlay layer per split_top/split_bottom b-roll item is
+          composited on top of [base0] — see Section 9 (SPLIT-SCREEN MAIN VIDEO SYNC &
+          HOLD-PHASE PARALLAX DRIFT ALGORITHM) for the full wipe-reveal + drift formulas.
+          This keeps the main video full-frame outside each such item's own active window,
+          instead of the main video being squished to half height for the entire render.
 
   Step 3: Zoom Punch-In Overlay Filter Chain
           For each zoom moment:
@@ -229,9 +236,13 @@ Renders live interactive browser preview of video, dynamic animated captions, B-
 video overlays, and camera zoom transforms in exact sync with audio playback position.
 
 Algorithm Steps:
-  Step 1: 60Hz Playback Sync Loop
-          React `requestAnimationFrame` loop queries HTML5 video element `currentTime` at 60Hz.
-          Updates Zustand `currentTime` state store smoothly.
+  Step 1: Playback Sync via `<video>` timeupdate
+          The HTML5 `<video>` element's native `timeupdate` event (NOT a manual
+          `requestAnimationFrame` loop — the browser fires this at its own cadence,
+          commonly a handful of times per second, not 60Hz) drives `onTimeUpdate`,
+          which updates the Zustand `currentTime` state store while playing. Seeking
+          (scrubbing, jumping to a scene) sets `videoRef.current.currentTime` directly
+          from a `currentTime` state change when the two drift by more than 0.3s.
 
   Step 2: Active Timeline Item Filtering
           Calculates active items for current timestamp t:
@@ -242,8 +253,8 @@ Algorithm Steps:
   Step 3: Dynamic CSS Scale & Overlay Transform Injection
           - Queries `useEditorStore.currentTemplate()` to safely resolve active template overlay parameters (blend mode, opacity, overlayVideoUrl).
           - Applies active zoom CSS transform: `transform: scale(zoom.scale)` on base video wrapper.
-          - Computes `computeBaseVideoStyle` layout bounds for split-screen duet/reaction layouts, dynamically displacing main video top offset (`top: 50%` for split_top, `top: 0%` for split_bottom).
-          - Dynamically renders active B-roll overlay video positioned on top canvas layer.
+          - Computes `computeBaseVideoStyle({ activeSplitItem, zoomScale, currentTime })` for split-screen duet/reaction layouts — the main video's top/height now animate continuously (shrinking from fullscreen into its resting half in sync with the b-roll's own reveal, then drifting slowly once settled), not a static `top: 50%`/`top: 0%` snap. See Section 9 for the full formulas, mirrored exactly in render.py.
+          - Dynamically renders active B-roll overlay video positioned on top canvas layer via `BrollAnimation.jsx`, including its own continuous hold-phase drift once revealed (Section 9).
           - Computes word-by-word highlight karaoke animation for caption text based on transcript word timestamps.
 
   Step 4: Sentence Scene Segmentation (Scenes.jsx / editorStore.js)
@@ -285,5 +296,157 @@ Lifecycle & Execution:
   Step 4: Unified Timeline Storage (WHAT)
           Timeline stores explicit timeline items with all styling properties embedded directly on each item.
           Preview and FFmpeg renderer execute directly from Timeline JSON without template ambiguity.
+
+
+9. SPLIT-SCREEN MAIN VIDEO SYNC & HOLD-PHASE PARALLAX DRIFT ALGORITHM
+-------------------------------------------------------------------------------
+Location: frontend/src/components/editor/animations/SplitScreenLayout.jsx,
+          frontend/src/components/editor/animations/BrollAnimation.jsx,
+          frontend/src/components/editor/animations/driftMotion.js,
+          backend/app/render.py (_build_video_filtergraph)
+
+Purpose:
+For a b-roll item with layout split_top/split_bottom, keeps the main (speaker) video
+and the b-roll moving together — in sync, in the same direction, with zero exposed
+empty space — for both the entrance reveal and a subtle continuous drift afterward.
+Implemented twice (CSS in the browser preview, FFmpeg filters in the export) using the
+SAME constants and formulas so the two never visually disagree (the one golden rule
+this whole module is built around).
+
+Definitions (shared by both implementations):
+  half_h   = H / 2 (pixels) — the split boundary is always the vertical frame midpoint.
+  restTop  = 50 if b-roll.layout == "split_top" else 0   (main video's resting top, %)
+             (a split_top b-roll rests in the TOP half, so main rests in the BOTTOM half
+             at top=50%; a split_bottom b-roll rests in the BOTTOM half, so main rests
+             in the TOP half at top=0%.)
+  p(t)     = clamp((t - item.start) / item.revealDuration, 0, 1)
+  ease(t)  = 1 - (1 - p(t))^3                              (cubic ease-out, entrance)
+
+Algorithm Steps:
+  Step 1: Entrance — main video shrinks from fullscreen into its half (frontend)
+          For DIRECTIONAL_ANIMS = {slide_down, slide_up, bounce_in, wipe_down}:
+            top    = restTop * ease(t)
+            height = 100 - 50 * ease(t)
+          Identity that guarantees zero gap for the ENTIRE transition:
+            top + height = restTop*ease + 100 - 50*ease
+            If restTop = 50: top + height = 100 constant  -> bottom edge always flush
+              with the frame's bottom edge (0 gap below).
+            If restTop = 0:  top = 0 constant              -> top edge always flush
+              with the frame's top edge (0 gap above).
+          Only the edge FACING the split boundary moves (the frame-boundary edge is
+          anchored the whole time), and its motion direction is inherently "down" for
+          a bottom-resting half and "up-receding" for a top-resting half — matching
+          the b-roll's own reveal direction without ever leaving empty space, unlike
+          an earlier implementation that sled a fixed-size box in from off-frame (that
+          approach could leave up to half the frame uncovered mid-transition).
+          Non-directional reveals (fade_in, zoom_in, none, slide_left, slide_right)
+          skip the shrink and instead fade main's opacity via `opacity = ease(t)`
+          while top/height stay pinned at rest, since there's no clear direction to
+          animate toward.
+
+  Step 2: Entrance — main video wipe-reveal (backend, FFmpeg equivalent of Step 1)
+          FFmpeg can't cleanly animate a dynamic crop/scale size per-frame the way CSS
+          can, so the backend achieves the identical VISUAL result differently:
+            - base0 (the full-frame main video) is always composited first and stays
+              underneath everything for the entire render.
+            - A separately, statically cropped-and-zoomed half of the main video
+              (scale=W:half_h,force_original_aspect_ratio=increase,crop=W:half_h — a
+              nicer crop for a half-height frame than just slicing base0) is overlaid
+              at its FIXED resting position `y=main_rest_y` (never moves).
+            - A `geq` alpha mask reveals it progressively via a growing edge:
+                if main rests in the TOP half:    edge = half_h * ease(t)   (grows DOWN)
+                if main rests in the BOTTOM half: edge = half_h*(1-ease(t)) (grows UP)
+              with an ~8%-of-half_h feather band at the edge for a soft transition.
+            - Because base0 is always there underneath, whatever the wipe hasn't
+              revealed yet just still shows the ordinary full-frame video — never a
+              gap, by construction.
+
+  Step 3: Hold-phase parallax drift (both implementations, driftMotion.js constants)
+          Once revealed, the b-roll and main video keep drifting slowly in the SAME
+          direction instead of freezing solid:
+            heldFor(t)      = max(0, t - item.start - item.revealDuration)
+            driftFraction(t)= smoothstep(heldFor(t) / DRIFT_HOLD_SECONDS)     [DRIFT_HOLD_SECONDS = 4]
+            smoothstep(x)   = c*c*(3 - 2*c), c = clamp(x, 0, 1)   (zero velocity at both
+                               ends, so there's no kink where the entrance ease hands
+                               off into this continuous drift)
+            brollDriftPct(t)= MAX_BROLL_DRIFT_PCT * driftFraction(t)         [= 5]
+            mainDriftPct(t) = MAX_MAIN_DRIFT_PCT  * driftFraction(t)         [= 2]
+          B-roll (BrollAnimation.jsx / render.py broll loop): for DRIFT_ANIMS =
+          {slide_down, slide_up, slide_left, slide_right, bounce_in}, the drift is
+          added to the existing translateY/X (frontend) or overlay y/x expression
+          (backend) in the SAME direction the reveal entered from. The frontend
+          renders the b-roll at a constant BROLL_OVERSCAN = 1.14x scale so panning it
+          a few percent never exposes an empty edge (it pans WITHIN its own oversized,
+          fixed-position box); the backend needs no such overscan since its b-roll
+          layer is a moving opaque box, not a content-shift-within-a-fixed-box.
+          Main video (SplitScreenLayout.jsx / render.py main-half loop): only for
+          VERTICAL_DRIFT_ANIMS = {slide_down, slide_up, bounce_in}, `top` gets
+          `sign * mainDriftPct(t)` added on top of its resting value once ease(t)=1
+          (sign = -1 for slide_up, else +1) — no overscan needed since main's box is
+          always fully opaque wherever it currently sits.
+
+
+10. AMBIENT OVERLAY BURST-WINDOW ALGORITHM
+-------------------------------------------------------------------------------
+Location: backend/app/routers/templates.py (_overlay_burst_windows, _apply_overlay_video)
+
+Purpose:
+Plays a template's ambient overlay loop (light leaks, film grain) as a few short
+bursts across the video instead of for its entire duration, matching how these
+effects read in real edited short-form video (brief accents, not a constant filter).
+
+Algorithm Steps:
+  Step 1: Burst Window Placement (_overlay_burst_windows(duration, burst_duration=2.5))
+          - videos <= 10s long get ONE burst, centered at 40% of the duration.
+          - longer videos get TWO bursts, centered at 22% and 68% of the duration.
+          - each window is clamped to `[0, duration - burst_duration]` so it never
+            starts before 0 or runs past the end of the video.
+          - burst_duration itself is capped at the video's own duration for very
+            short clips.
+
+  Step 2: Timeline Injection (_apply_overlay_video)
+          Instead of one full-duration TimelineItem on the 'overlay' track, one item
+          per burst window is created (`overlay_{template.id}_{i}`), each with the
+          template's configured blendMode/opacity/overlayVideoUrl but only that
+          window's `start`/`duration` — so both the FFmpeg `enable='between(t,...)'`
+          gate and the frontend's `activeAt()` filter naturally only show it during
+          its burst.
+
+
+11. COVER IMAGE FRAME-CAPTURE ALGORITHM
+-------------------------------------------------------------------------------
+Location: backend/app/render.py (capture_frame, _build_video_filtergraph),
+          backend/app/routers/projects.py (POST /{project_id}/cover)
+
+Purpose:
+Lets the user scrub the timeline in a "Cover" preview tab and save the exact
+composited frame at that instant (including whatever b-roll/split-screen layer is
+active there) as the project's dashboard thumbnail — pixel-identical to what a full
+export would produce at that timestamp, per the same golden rule as everything else
+in render.py.
+
+Algorithm Steps:
+  Step 1: Shared Filtergraph Extraction
+          `render_timeline()` and `capture_frame()` both call the SAME
+          `_build_video_filtergraph(timeline, assets)` helper to build the video-side
+          filter chain (base video, split-screen sync, zooms, b-roll/overlay, up to
+          the final composited `video_out` label) — `render_timeline` then continues
+          on to build the audio side and encode; `capture_frame` stops at `video_out`.
+
+  Step 2: Single-Frame Extraction at an Arbitrary Time
+          `capture_frame(timeline, assets, at_time, output_path)` runs the identical
+          filter_complex, maps `[video_out]`, and uses OUTPUT-level seeking:
+            `ffmpeg ... -filter_complex <chain> -map [video_out] -ss {at_time} -frames:v 1 output.jpg`
+          Output-level `-ss` (placed after -filter_complex/-map, not tied to a single
+          -i input) seeks the fully COMPOSITED stream, not any one input — this is
+          what guarantees the captured frame matches the live-composited timeline
+          rather than just one raw input clip's frame at that timestamp.
+
+  Step 3: Persistence
+          `POST /api/projects/{id}/cover` loads the project's Timeline/Assets, calls
+          `capture_frame`, saves the JPEG via `storage.cover_path_for(project_id)`
+          (`cover_{project_id}.jpg` under uploads, served at `/api/uploads/...`), and
+          sets `project.coverImage` to the served path — which `Dashboard.jsx`'s
+          `ProjectCard` then renders in place of the default video-element thumbnail.
 
 ===============================================================================

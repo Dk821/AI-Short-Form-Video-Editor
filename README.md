@@ -109,8 +109,8 @@ Frontend app will run at `http://localhost:5173`.
 │   │       ├── schema.py            # Pydantic schemas for video templates (Caption, Broll, Overlay)
 │   │       ├── registry.py          # Template registry loader & JSON presets parser
 │   │       └── library/             # Preset JSON templates (viral, gaming, podcast, business, etc.)
-│   │           ├── thumbnails/      # Template preview thumbnails
-│   │           └── overlays/        # Bundled video overlay loops (light leaks, film grain)
+│   │           ├── thumbnails/      # Template preview thumbnails (not yet present on disk — see PROJECT.md "Known Gaps")
+│   │           └── overlays/        # Bundled video overlay loops (light leaks, film grain) — same gap as above
 │   ├── .env                         # Backend environment secrets (API Keys)
 │   ├── .gitignore                   # Backend git ignore rules
 │   └── requirements.txt             # Python dependencies
@@ -127,19 +127,24 @@ Frontend app will run at `http://localhost:5173`.
 │   │   │   ├── dashboard/
 │   │   │   │   └── CreateProjectModal.jsx # Project creation modal with template & aspect ratio selector
 │   │   │   └── editor/
-│   │   │       ├── VideoPreview.jsx # HTML5 live preview canvas with animated captions & zooms
-│   │   │       ├── Timeline.jsx     # Multi-track timeline control panel wrapper
-│   │   │       ├── TimelineTrack.jsx# Track container (video, broll, caption, audio, zoom, overlay)
-│   │   │       ├── TimelineItem.jsx # Draggable/resizable timeline clips
-│   │   │       ├── Sidebar.jsx      # Control panel for Templates, Captions, AI Edit, B-roll, Assets
-│   │   │       ├── Toolbar.jsx      # Navigation bar (Export, Undo/Redo, Split, Title)
-│   │   │       ├── BrollPicker.jsx  # Pexels stock video search grid & thumbnail previewer modal
+│   │   │       ├── VideoPreview.jsx # HTML5 live preview canvas — captions, zooms, b-roll, and the Cover Image scrub/save tab
+│   │   │       ├── Timeline.jsx     # Multi-track timeline control panel wrapper (dead code — not rendered anywhere; Scenes.jsx is the live b-roll UI)
+│   │   │       ├── TimelineTrack.jsx# Track container (video, broll, caption, audio, zoom, overlay) — see note above
+│   │   │       ├── TimelineItem.jsx # Draggable/resizable timeline clips — see note above
+│   │   │       ├── Sidebar.jsx      # Control panel tabs (Captions / Edit Scenes / Trim), kept mounted and toggled via CSS for instant switching
+│   │   │       ├── Toolbar.jsx      # Navigation bar (Export, Undo/Redo, Save, top-level tab switcher)
+│   │   │       ├── BrollPicker.jsx  # Pexels search grid — pick clip + layout + animation, then explicit "Save B-roll" to attach
 │   │   │       ├── TemplateLibrary.jsx # Video style template selector modal
-│   │   │       └── Scenes.jsx       # Sentence-level scene segmentation & manual zoom/broll trigger
+│   │   │       ├── Scenes.jsx       # Sentence-level scene segmentation; b-roll indicator opens picker (empty) or Add/Edit/Delete dropdown (attached)
+│   │   │       └── animations/
+│   │   │           ├── index.js             # Re-exports BrollAnimation, SplitScreenLayout, compute*Style helpers
+│   │   │           ├── BrollAnimation.jsx   # B-roll reveal animation + continuous hold-phase drift once revealed
+│   │   │           ├── SplitScreenLayout.jsx# Main video split-screen placement, synced with the b-roll's reveal + its own drift
+│   │   │           └── driftMotion.js       # Shared drift constants/formula, mirrored in backend/app/render.py
 │   │   ├── services/
-│   │   │   └── api.js               # Centralized REST API client for backend
+│   │   │   └── api.js               # Centralized REST API client for backend (incl. setCover)
 │   │   └── stores/
-│   │       └── editorStore.js       # Zustand state management for timeline, assets, playback & selection
+│   │       └── editorStore.js       # Zustand state management for timeline, assets, playback, selection & cover-image save state
 │   ├── package.json                 # Node dependencies & scripts
 │   ├── tailwind.config.js           # Styling configuration
 │   ├── vite.config.js               # Vite build configuration
@@ -165,10 +170,15 @@ Frontend app will run at `http://localhost:5173`.
    - Dual provider engine: OpenRouter (`openai/gpt-4o-mini`) with direct fallback to Google Gemini (`gemini-3.7-flash`).
    - Enforces a **hard validation gate** to filter out overlapping moments, bad timestamps, or invalid zoom scales (`[1.05, 2.0]`).
 7. **Pexels Stock B-Roll Search & Library**: Search portrait MP4 stock footage directly from Pexels API, preview thumbnails/video loops in-browser, and attach overlays to timeline tracks manually or via AI.
+   - Pick screen layout (Full / Top Split / Bottom Split) and reveal animation manually before attaching (select-then-save, not instant-attach).
+   - Already-attached b-roll gets a 3-option dropdown from `Scenes.jsx` — Add New B-roll, Edit Transition, Delete B-roll.
 8. **Interactive React Preview & Scenes Panel**:
    - Multi-track HTML5 video preview with synchronized dynamic caption rendering, live zoom scale transforms, and B-roll overlays.
    - Sentence-level transcript scene segmentation view (`Scenes.jsx`) allowing quick manual zoom toggles and targeted B-roll attachment.
-9. **Server-Side FFmpeg Exporter**: Background multi-track video renderer generating high-quality MP4 exports using a single FFmpeg filtergraph with zoom punch-ins, B-roll overlays, text drawtext filters, and mixed audio tracks.
+   - Sidebar tabs (Captions / Edit Scenes / Trim) stay mounted and switch via CSS visibility, preserving each panel's state across tab changes.
+9. **Split-screen B-roll animation synced with the main video**: the main video shrinks from fullscreen into its complementary half in sync with the b-roll's own reveal (same timing/easing, edge against the frame boundary always flush so there's never a gap), then both layers keep drifting slowly in the same direction as a subtle continuous parallax once settled. Shared timing constants live in `driftMotion.js` and are mirrored exactly in `render.py` for preview/export parity.
+10. **Cover Image capture**: scrub the timeline in a dedicated "Cover" tab and save the current frame (via `POST /api/projects/{id}/cover`, reusing the export filtergraph) as the project's dashboard thumbnail.
+11. **Server-Side FFmpeg Exporter**: Background multi-track video renderer generating high-quality MP4 exports using a single FFmpeg filtergraph with zoom punch-ins, B-roll overlays, text drawtext filters, and mixed audio tracks. Ambient template overlays now play as short 2–3s bursts (1–2 times per video) instead of the full duration.
 
 ---
 
@@ -182,6 +192,7 @@ Frontend app will run at `http://localhost:5173`.
 | `GET` | `/api/projects/{id}` | Fetch project details (timeline, assets, transcript) |
 | `PATCH` | `/api/projects/{id}` | Rename an existing project |
 | `DELETE` | `/api/projects/{id}` | Delete a project and its associated local assets |
+| `POST` | `/api/projects/{id}/cover` | Capture the frame at a given time (via the export filtergraph) and set it as the project's dashboard cover image |
 | `POST` | `/api/projects/{id}/upload` | Upload video/audio asset file to project |
 | `POST` | `/api/projects/{id}/transcribe` | Trigger Groq Whisper word-level speech-to-text |
 | `POST` | `/api/projects/{id}/generate-captions` | Generate timed caption track items |
