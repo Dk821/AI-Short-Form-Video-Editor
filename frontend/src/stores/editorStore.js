@@ -15,6 +15,10 @@ export const useEditorStore = create((set, get) => ({
   currentTime: 0,
   isPlaying: false,
   exportJob: null,
+  exportPanelOpen: false,
+  exportFormat: 'mp4', // 'mp4' | 'webm' | 'gif' — the export panel's 3 format options
+  exportQuality: 'standard', // 'draft' | 'standard' | 'high'
+  exportFrameRate: null, // null = match the project's own fps; otherwise 24 | 30 | 60
   status: 'idle', // idle | loading | ready | error
   error: null,
 
@@ -446,10 +450,34 @@ export const useEditorStore = create((set, get) => ({
     set({ isPlaying: p })
   },
 
-  async startExport() {
-    const { projectId } = get()
+  openExportPanel() {
+    set({ exportPanelOpen: true })
+  },
+  closeExportPanel() {
+    set({ exportPanelOpen: false })
+  },
+  setExportFormat(format) {
+    set({ exportFormat: format })
+  },
+  setExportQuality(quality) {
+    set({ exportQuality: quality })
+  },
+  setExportFrameRate(frameRate) {
+    set({ exportFrameRate: frameRate })
+  },
+
+  // Called by the export panel's "Save" button: persists the currently
+  // selected format/quality/frame rate as the project's export settings,
+  // saves the timeline (same as every other edit), and immediately starts
+  // rendering with those settings.
+  async startExport(opts = {}) {
+    const { projectId, exportFormat, exportQuality, exportFrameRate } = get()
+    const format = opts.format || exportFormat
+    const quality = opts.quality || exportQuality
+    const frameRate = opts.frameRate !== undefined ? opts.frameRate : exportFrameRate
+    set({ exportFormat: format, exportQuality: quality, exportFrameRate: frameRate })
     await get().persist()
-    const job = await api.startExport(projectId)
+    const job = await api.startExport(projectId, { format, quality, frameRate: frameRate || undefined })
     set({ exportJob: job })
     const poll = async () => {
       const status = await api.getExportStatus(job.id)

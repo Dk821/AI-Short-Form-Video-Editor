@@ -68,7 +68,11 @@ export const api = {
     form.append('file', file)
     return fetch(`${BASE}/projects/${id}/upload`, { method: 'POST', body: form }).then(j)
   },
-  startExport: (id) => fetch(`${BASE}/projects/${id}/export`, { method: 'POST' }).then(j),
+  startExport: (id, { format = 'mp4', quality = 'standard', frameRate } = {}) => {
+    const params = { format, quality }
+    if (frameRate) params.frameRate = frameRate
+    return fetch(`${BASE}/projects/${id}/export?${new URLSearchParams(params)}`, { method: 'POST' }).then(j)
+  },
   getExportStatus: (jobId) => fetch(`${BASE}/renders/${jobId}`).then(j),
   downloadUrl: (path) => path,
   assetUrl: (asset) => asset?.servedPath || '',

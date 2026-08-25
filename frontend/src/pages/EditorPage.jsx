@@ -7,6 +7,7 @@ import Sidebar from '../components/editor/Sidebar'
 import VideoPreview from '../components/editor/VideoPreview'
 import TemplateLibrary from '../components/editor/TemplateLibrary'
 import BrollPicker from '../components/editor/BrollPicker'
+import ExportPanel from '../components/editor/ExportPanel'
 
 export default function EditorPage() {
   const { projectId } = useParams()
@@ -62,6 +63,7 @@ export default function EditorPage() {
 
       <TemplateLibrary />
       <BrollPicker />
+      <ExportPanel />
     </div>
   )
 }

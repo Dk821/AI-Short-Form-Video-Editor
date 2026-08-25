@@ -14,7 +14,7 @@ import {
 import { useEditorStore } from '../../stores/editorStore'
 
 export default function Toolbar({ activeTab, onTabChange }) {
-  const { project, isPlaying, setPlaying, startExport, exportJob } = useEditorStore()
+  const { project, isPlaying, setPlaying, openExportPanel, exportJob } = useEditorStore()
 
   const jobStatus = exportJob?.status
   const label =
@@ -22,7 +22,7 @@ export default function Toolbar({ activeTab, onTabChange }) {
       ? 'Rendering...'
       : jobStatus === 'failed'
       ? 'Export failed'
-      : 'Export MP4'
+      : 'Export'
 
   return (
     <header className="flex h-14 items-center justify-between bg-dark-bg px-5 select-none z-20 shadow-lg shadow-black/40">
@@ -107,9 +107,8 @@ export default function Toolbar({ activeTab, onTabChange }) {
         </button>
 
         <button
-          onClick={startExport}
-          disabled={jobStatus === 'processing' || jobStatus === 'queued'}
-          className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-1.5 text-xs font-bold text-white shadow-purpleGlow hover:bg-primary-hover transition disabled:opacity-50"
+          onClick={openExportPanel}
+          className="flex items-center gap-1.5 rounded-xl bg-primary px-4 py-1.5 text-xs font-bold text-white shadow-purpleGlow hover:bg-primary-hover transition"
           title="Export Video"
         >
           {jobStatus === 'processing' || jobStatus === 'queued' ? (
@@ -125,7 +124,7 @@ export default function Toolbar({ activeTab, onTabChange }) {
             href={exportJob.outputUrl}
             className="flex items-center gap-1.5 rounded-xl bg-primary/20 px-3.5 py-1.5 text-xs font-bold text-primary shadow-sm hover:bg-primary/30 transition"
             download
-            title="Download rendered MP4 video"
+            title={`Download rendered ${(exportJob.format || 'mp4').toUpperCase()}`}
           >
             <Download className="h-3.5 w-3.5" />
             Download

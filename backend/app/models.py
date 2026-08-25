@@ -121,6 +121,9 @@ class ExportJob(BaseModel):
     id: str
     projectId: str
     status: Literal["queued", "processing", "done", "failed"] = "queued"
+    format: Literal["mp4", "webm", "gif"] = "mp4"
+    quality: Literal["draft", "standard", "high"] = "standard"
+    frameRate: Optional[int] = None  # None = use the project's own fps
     progress: float = 0
     outputUrl: Optional[str] = None
     error: Optional[str] = None

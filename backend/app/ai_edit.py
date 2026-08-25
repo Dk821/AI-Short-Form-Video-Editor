@@ -174,25 +174,32 @@ def call_auto_edit(words: List[dict], duration: float) -> dict:
             "Set OPENROUTER_API_KEY or GEMINI_API_KEY in backend/.env before calling /auto-edit."
         )
 
-    last_err: Exception | None = None
+    errors: List[str] = []
 
     if openrouter_key:
         try:
             return call_openrouter(words, duration)
-        except (requests.ConnectionError, requests.Timeout, requests.exceptions.ChunkedEncodingError) as e:
-            # Network-level failure (blocked, reset, timeout). Try Gemini fallback.
-            last_err = e
-            print(f"[auto-edit] OpenRouter unreachable ({type(e).__name__}), falling back to Gemini…")
+        except Exception as e:
+            # ANY OpenRouter failure falls through to Gemini when a key is
+            # configured — not just network-level ones. This used to only
+            # catch ConnectionError/Timeout/ChunkedEncodingError, but
+            # call_openrouter's resp.raise_for_status() raises
+            # requests.exceptions.HTTPError for a non-2xx response (401 bad
+            # key, 402 out of credits, 429 rate limited, 5xx provider
+            # outage) — a different exception class from those network-level
+            # ones, so it was never caught here and propagated straight to
+            # the caller instead of trying the Gemini key .env already
+            # documents as the fallback.
+            errors.append(f"OpenRouter: {e}")
+            print(f"[auto-edit] OpenRouter failed ({type(e).__name__}: {e}), falling back to Gemini…")
 
     if gemini_key:
         try:
             return call_gemini_direct(words, duration)
         except Exception as e:
-            last_err = e
+            errors.append(f"Gemini: {e}")
 
-    raise RuntimeError(
-        f"All AI providers failed. Last error: {last_err}"
-    )
+    raise RuntimeError("All AI providers failed. " + " | ".join(errors))
 
 
 call_gemini = call_auto_edit

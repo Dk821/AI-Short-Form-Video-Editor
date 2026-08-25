@@ -20,8 +20,11 @@ point for all of those — each is another chained ffmpeg filter.
 from __future__ import annotations
 
 import json
+import os
+import platform
 import shlex
 import subprocess
+import tempfile
 from typing import Dict, List
 
 from .models import Timeline, TimelineItem, Asset
@@ -203,7 +206,14 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
         dur = max(getattr(split_item, "revealDuration", 0.5) or 0.5, 0.01)
         s_start = split_item.start
         s_end = s_start + split_item.duration
-        p_expr = f"min(max((t-{s_start})/{dur},0),1)"
+        # NOTE: this ease_expr feeds the geq alpha mask below, not overlay's
+        # x/y or enable — and geq's eval context names the time variable
+        # uppercase T, unlike every other filter here (overlay/drawtext/fade
+        # all use lowercase t). Using t here was silently invalid inside geq
+        # ("Undefined constant or missing '('") and made ffmpeg abort the
+        # whole filtergraph — i.e. it hard-failed every export containing a
+        # directional split-screen reveal. Keep this one on T.
+        p_expr = f"min(max((T-{s_start})/{dur},0),1)"
         ease_expr = f"sin({p_expr}*1.5707963)"
 
         raw = f"mainhalf{i}raw"
@@ -468,9 +478,133 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
     return input_args, filters, video_out, main_idx, W, H, fps, add_input, audio_track, sfx_track
 
 
-def render_timeline(timeline: Timeline, assets: Dict[str, Asset], output_path: str) -> None:
+_fontconfig_conf_path: str | None = None
+
+
+def _fontconfig_env() -> dict:
+    """drawtext's font='Family Name' option (used for every caption — see
+    the caption loop below) resolves the family through fontconfig. Many
+    ffmpeg builds compile fontconfig support in (including the Windows
+    "full" gyan.dev build), but Windows itself ships no fontconfig install
+    — no fonts.conf, no font cache — so the very first caption filter
+    aborted the ENTIRE render with "Fontconfig error: Cannot load default
+    config file: No such file: (null)" before a single frame was produced.
+    This is distinct from (and was previously masked by) the geq/audio-map
+    bugs, since ffmpeg only gets around to initializing drawtext once the
+    rest of the graph parses cleanly.
+
+    Fix: generate a minimal fonts.conf once, pointing fontconfig at the
+    OS's real font directory, and pass it to the ffmpeg subprocess via
+    FONTCONFIG_FILE so font='...' lookups resolve normally (falling back
+    to a substitute font if the exact family isn't installed, rather than
+    hard-failing)."""
+    global _fontconfig_conf_path
+    if _fontconfig_conf_path is None:
+        conf_dir = os.path.join(tempfile.gettempdir(), "ai_editor_fontconfig")
+        cache_dir = os.path.join(conf_dir, "cache")
+        os.makedirs(cache_dir, exist_ok=True)
+
+        system = platform.system()
+        if system == "Windows":
+            font_dirs = [os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")]
+        elif system == "Darwin":
+            font_dirs = ["/System/Library/Fonts", "/Library/Fonts", os.path.expanduser("~/Library/Fonts")]
+        else:
+            font_dirs = ["/usr/share/fonts", "/usr/local/share/fonts", os.path.expanduser("~/.fonts")]
+        dirs_xml = "".join(f"<dir>{d}</dir>" for d in font_dirs if os.path.isdir(d))
+
+        conf_path = os.path.join(conf_dir, "fonts.conf")
+        with open(conf_path, "w", encoding="utf-8") as f:
+            f.write(
+                '<?xml version="1.0"?>\n<!DOCTYPE fontconfig SYSTEM "fonts.dtd">\n<fontconfig>\n'
+                f"{dirs_xml}<cachedir>{cache_dir}</cachedir>\n</fontconfig>\n"
+            )
+        _fontconfig_conf_path = conf_path
+    return {"FONTCONFIG_FILE": _fontconfig_conf_path}
+
+
+def _run_ffmpeg(cmd_prefix: List[str], filter_complex: str, cmd_suffix: List[str], error_prefix: str) -> None:
+    """Runs ffmpeg with the filter graph passed via -filter_complex_script
+    (a temp file) instead of inline on the command line. A timeline with
+    several split-screen/broll/caption items easily produces a filter graph
+    tens of thousands of characters long; passed inline that pushed the
+    full assembled command past Windows' CreateProcess command-line limit,
+    which surfaced not as an ffmpeg error but as the opaque Python
+    `[WinError 206] The filename or extension is too long` — failing the
+    export before ffmpeg even ran. A script file has no such limit."""
+    with tempfile.NamedTemporaryFile("w", suffix=".ffscript", delete=False, encoding="utf-8") as f:
+        f.write(filter_complex)
+        script_path = f.name
+    try:
+        cmd = [*cmd_prefix, "-filter_complex_script", script_path, *cmd_suffix]
+        env = {**os.environ, **_fontconfig_env()}
+        proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        if proc.returncode != 0:
+            raise RuntimeError(f"{error_prefix}:\n{' '.join(shlex.quote(c) for c in cmd)}\n\n{proc.stderr[-4000:]}")
+    finally:
+        try:
+            os.remove(script_path)
+        except OSError:
+            pass
+
+
+# The export panel's Quality option. Controls encoder CRF for mp4/webm
+# (lower CRF = higher quality/bigger file) and, since a GIF has no
+# bitrate/CRF concept, its pixel width + frame rate ceiling instead.
+QUALITY_PRESETS = {
+    "draft":    {"mp4_crf": 30, "webm_crf": 40, "gif_width": 480, "gif_fps_cap": 10},
+    "standard": {"mp4_crf": 23, "webm_crf": 32, "gif_width": 640, "gif_fps_cap": 15},
+    "high":     {"mp4_crf": 18, "webm_crf": 24, "gif_width": 854, "gif_fps_cap": 20},
+}
+
+
+def render_timeline(
+    timeline: Timeline,
+    assets: Dict[str, Asset],
+    output_path: str,
+    fmt: str = "mp4",
+    quality: str = "standard",
+    frame_rate: int | None = None,
+) -> None:
+    """`fmt` selects the export container/codec — "mp4" (H.264/AAC, the
+    default, universally playable), "webm" (VP9/Opus, smaller file for web
+    embedding), or "gif" (silent looping preview, no audio track at all).
+    `quality` is one of QUALITY_PRESETS' keys. `frame_rate`, if given,
+    overrides the project's own fps for JUST the final output — the
+    internal filter graph still normalizes at the project's fps (`fps`,
+    below) for consistent compositing/timing, exactly like the live
+    preview; only the exported file's frame rate changes.
+
+    All formats composite from the exact same filter graph via
+    _build_video_filtergraph, so the picture is identical across formats —
+    only the tail end (audio handling + output codec/frame-rate args)
+    differs."""
     (input_args, filters, video_out, main_idx, W, H, fps,
      add_input, audio_track, sfx_track) = _build_video_filtergraph(timeline, assets)
+
+    preset = QUALITY_PRESETS.get(quality, QUALITY_PRESETS["standard"])
+    out_fps = frame_rate if frame_rate else fps
+
+    if fmt == "gif":
+        # Standard high-quality ffmpeg GIF recipe: build an optimized
+        # palette from the composited video, then dither the same video
+        # through it. Runs on top of the shared video_out label, so a GIF
+        # export still matches the live preview frame-for-frame — no
+        # separate/approximated pipeline. No audio: GIF has no audio track.
+        # A GIF has no real use for a very high frame rate (file size
+        # balloons for no visible benefit), so the requested rate is still
+        # capped by the quality preset's gif_fps_cap.
+        gif_fps = min(out_fps, preset["gif_fps_cap"])
+        gif_w = preset["gif_width"]
+        filters.append(f"[{video_out}]fps={gif_fps},scale={gif_w}:-1:flags=lanczos,split[gifs0][gifs1]")
+        filters.append("[gifs0]palettegen=stats_mode=diff[gifpal]")
+        filters.append("[gifs1][gifpal]paletteuse=dither=bayer[gifout]")
+        filter_complex = ";".join(filters)
+
+        cmd_prefix = ["ffmpeg", "-y", *input_args]
+        cmd_suffix = ["-map", "[gifout]", output_path]
+        _run_ffmpeg(cmd_prefix, filter_complex, cmd_suffix, "ffmpeg failed")
+        return
 
     # Audio: main clip audio + audio track + sfx track, mixed.
     audio_labels = [f"{main_idx}:a"]
@@ -488,21 +622,34 @@ def render_timeline(timeline: Timeline, assets: Dict[str, Asset], output_path: s
     if len(audio_labels) > 1:
         mix_inputs = "".join(f"[{lbl}]" for lbl in audio_labels)
         filters.append(f"{mix_inputs}amix=inputs={len(audio_labels)}:dropout_transition=0[aout]")
-        audio_out = "aout"
+        audio_map = "[aout]"
     else:
-        audio_out = audio_labels[0]
+        # Nothing to mix in — just the main clip's own audio, which was
+        # never fed through -filter_complex. `-map` treats a bracketed
+        # name as a lookup for a *named pad declared inside the filter
+        # graph* (e.g. the "[aout]" created above), not a plain stream
+        # specifier — wrapping a raw "{idx}:a" in brackets here made ffmpeg
+        # fail every export with "Output with label '0:a' does not exist
+        # in any defined filter graph", since no such pad was ever
+        # declared. A bare input stream specifier must be mapped unbracketed.
+        audio_map = audio_labels[0]
 
     filter_complex = ";".join(filters)
 
-    cmd = ["ffmpeg", "-y", *input_args,
-           "-filter_complex", filter_complex,
-           "-map", f"[{video_out}]", "-map", f"[{audio_out}]",
-           "-r", str(fps), "-c:v", "libx264", "-preset", "veryfast",
-           "-c:a", "aac", "-shortest", output_path]
+    if fmt == "webm":
+        # -cpu-used 4 trades a little quality for a lot of speed — libvpx-vp9
+        # defaults to cpu-used=0 (its slowest setting), which turns a normal
+        # short-form clip into a multi-minute background job. -row-mt 1 lets
+        # it use multiple threads per row too.
+        codec_args = ["-c:v", "libvpx-vp9", "-crf", str(preset["webm_crf"]), "-b:v", "0", "-deadline", "good",
+                      "-cpu-used", "4", "-row-mt", "1", "-c:a", "libopus"]
+    else:  # "mp4" (default)
+        codec_args = ["-c:v", "libx264", "-preset", "veryfast", "-crf", str(preset["mp4_crf"]), "-c:a", "aac"]
 
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise RuntimeError(f"ffmpeg failed:\n{' '.join(shlex.quote(c) for c in cmd)}\n\n{proc.stderr[-4000:]}")
+    cmd_prefix = ["ffmpeg", "-y", *input_args]
+    cmd_suffix = ["-map", f"[{video_out}]", "-map", audio_map,
+                  "-r", str(out_fps), *codec_args, "-shortest", output_path]
+    _run_ffmpeg(cmd_prefix, filter_complex, cmd_suffix, "ffmpeg failed")
 
 
 def capture_frame(timeline: Timeline, assets: Dict[str, Asset], at_time: float, output_path: str) -> None:
@@ -524,12 +671,6 @@ def capture_frame(timeline: Timeline, assets: Dict[str, Asset], at_time: float, 
     filter_complex = ";".join(filters)
     at_time = max(0.0, at_time)
 
-    cmd = ["ffmpeg", "-y", *input_args,
-           "-filter_complex", filter_complex,
-           "-map", f"[{video_out}]",
-           "-ss", str(at_time), "-frames:v", "1",
-           output_path]
-
-    proc = subprocess.run(cmd, capture_output=True, text=True)
-    if proc.returncode != 0:
-        raise RuntimeError(f"ffmpeg cover capture failed:\n{' '.join(shlex.quote(c) for c in cmd)}\n\n{proc.stderr[-4000:]}")
+    cmd_prefix = ["ffmpeg", "-y", *input_args]
+    cmd_suffix = ["-map", f"[{video_out}]", "-ss", str(at_time), "-frames:v", "1", output_path]
+    _run_ffmpeg(cmd_prefix, filter_complex, cmd_suffix, "ffmpeg cover capture failed")
