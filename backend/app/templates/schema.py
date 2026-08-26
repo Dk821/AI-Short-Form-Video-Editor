@@ -70,7 +70,7 @@ class BrollStyle(BaseModel):
     cropMode: Literal["cover", "contain"] = "cover"
     transitionMs: int = 250
     layout: Optional[Literal["full", "split_top", "split_bottom"]] = "full"
-    revealAnimation: Optional[Literal["none", "slide_down", "slide_up", "slide_left", "slide_right", "fade_in", "zoom_in", "wipe_down", "bounce_in"]] = "none"
+    revealAnimation: Optional[Literal["none", "slide_down", "slide_up", "slide_left", "slide_right", "fade_in", "zoom_in", "pop", "wipe_down", "bounce_in"]] = "none"
     exitAnimation: Optional[Literal["none", "fade_out", "slide_out_down", "zoom_out"]] = "none"
     revealDuration: Optional[float] = 0.5
     maxDuration: float = 5.0
@@ -93,6 +93,22 @@ class OverlayStyle(BaseModel):
     exit: Optional[str] = "fade_out"
     hookText: Optional[str] = None
     watermarkPosition: Optional[str] = None
+
+    # Content-aware duration bounds (dynamic overlay duration system —
+    # see backend/app/overlays/). The AI auto-edit engine proposes a
+    # semantic overlay moment (style + rough start/end); template_engine
+    # clamps the resulting TimelineItem.duration into this range rather
+    # than trusting the LLM's raw numbers or hardcoding one duration for
+    # every overlay use. minDuration/maxDuration bound whatever the AI
+    # asked for; defaultDuration is used when the AI didn't give a usable
+    # span. supportsLoop mirrors TimelineItem.loop's default for overlay
+    # items created FROM this template — False for anything meant to read
+    # as a one-shot flourish (a hook burst, a transition) rather than an
+    # ambient texture that's fine repeating.
+    minDuration: float = 1.0
+    defaultDuration: float = 3.0
+    maxDuration: float = 10.0
+    supportsLoop: bool = True
 
 
 class ZoomStyle(BaseModel):

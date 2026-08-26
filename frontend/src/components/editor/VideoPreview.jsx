@@ -20,8 +20,59 @@ import {
 } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
 import { api } from '../../services/api'
-import { BrollAnimation, computeBaseVideoStyle } from './animations'
+import { BrollAnimation, computeBaseVideoStyle, SpeakerPreview } from './animations'
+import useOverlaySourceSync from './animations/useOverlaySourceSync'
 
+// Unicode glyph shown before a CTA's text, keyed by item.ctaIcon — MUST
+// mirror backend/app/render.py's _CTA_ICON_GLYPHS exactly (same names,
+// same characters) so the live preview and the exported video agree on
+// what a given icon name looks like, per this app's one golden rule.
+const CTA_ICON_GLYPHS = {
+  arrow: '→',
+  heart: '♥',
+  cart: '\u{1F6D2}',
+  link: '\u{1F517}',
+  star: '★',
+  fire: '\u{1F525}',
+  bell: '\u{1F514}',
+  play: '▶',
+}
+
+// Renders a broll/overlay item that carries its own `sourceUrl` but no
+// resolved `assetId` (e.g. a template's burst-timed overlay video — see
+// routers/templates.py _apply_overlay_video). A separate component (not
+// inline JSX) so useOverlaySourceSync — which seeks this element to the
+// right point in its source and decides trim/loop/hold, see
+// lib/overlayResolver.js — can be a real hook call per item.
+function RawSourceOverlayVideo({ item, currentTime }) {
+  const [videoEl, setVideoEl] = useState(null)
+  useOverlaySourceSync(videoEl, item, currentTime)
+  return (
+    <video
+      ref={setVideoEl}
+      src={item.sourceUrl}
+      className="absolute inset-0 h-full w-full object-cover pointer-events-none z-10"
+      style={{
+        mixBlendMode: item.blendMode || 'screen',
+        opacity: item.opacity ?? 0.85,
+      }}
+      autoPlay
+      muted
+      playsInline
+    />
+  )
+}
+
+// Canvas layer order, back to front — keep every z-index in this file (and
+// in BrollAnimation.jsx / SpeakerPreview.jsx) matching this list, since
+// it's the one thing standing between "widgets read correctly" and a
+// caption or speaker bubble getting buried under a b-roll clip:
+//   0  main video            (SplitScreenLayout's computeBaseVideoStyle)
+//   10 b-roll / overlay video (BrollAnimation.jsx, RawSourceOverlayVideo,
+//                              template overlay-video fallback below)
+//   20 captions
+//   30 speaker PiP + CTA pill (always on top — small widgets that must
+//                              never be hidden behind a full-frame b-roll)
 export default function VideoPreview() {
   const {
     timeline, assets, currentTime, isPlaying, setCurrentTime, setPlaying,
@@ -41,11 +92,20 @@ export default function VideoPreview() {
   const captionTrack = timeline?.tracks?.find((t) => t.type === 'caption')
   const overlayTrack = timeline?.tracks?.find((t) => t.type === 'overlay')
   const zoomTrack = timeline?.tracks?.find((t) => t.type === 'zoom')
+  const ctaTrack = timeline?.tracks?.find((t) => t.type === 'cta')
 
   const brollItems = brollTrack?.items || []
   const captionItems = captionTrack?.items || []
   const overlayItems = overlayTrack?.items || []
   const zoomItems = zoomTrack?.items || []
+  const ctaItems = ctaTrack?.items || []
+
+  // Speaker items also live on the "overlay" track (see models.py) but are
+  // never rendered through the generic BrollAnimation full-frame/split
+  // path below — that would stretch a small PiP bubble across the whole
+  // canvas. They get their own SpeakerPreview block instead.
+  const speakerItems = overlayItems.filter((it) => it.type === 'speaker')
+  const genericOverlayItems = overlayItems.filter((it) => it.type !== 'speaker')
 
   const currentTemplate = useEditorStore((s) => (typeof s?.currentTemplate === 'function' ? s.currentTemplate() : null))
   const width = timeline?.project?.aspectRatio === '16:9' ? 1920 : 1080
@@ -84,7 +144,7 @@ export default function VideoPreview() {
   const zoomScale = activeZoom ? activeZoom.transform.scale : 1
 
   const activeBroll = brollItems.find(activeAt)
-  const activeSplitItem = activeBroll || overlayItems.filter(activeAt).find((it) => it.layout === 'split_top' || it.layout === 'split_bottom')
+  const activeSplitItem = activeBroll || genericOverlayItems.filter(activeAt).find((it) => it.layout === 'split_top' || it.layout === 'split_bottom')
 
   const baseStyle = computeBaseVideoStyle({ activeSplitItem, zoomScale, currentTime })
 
@@ -240,25 +300,11 @@ export default function VideoPreview() {
             )}
 
             {/* B-roll & Overlay Track Items */}
-            {[...brollItems, ...overlayItems].filter(activeAt).map((item) => {
+            {[...brollItems, ...genericOverlayItems].filter(activeAt).map((item) => {
               const asset = assets.find((a) => a.id === item.assetId)
               if (!asset) {
                 if (item.sourceUrl) {
-                  return (
-                    <video
-                      key={item.id}
-                      src={item.sourceUrl}
-                      className="absolute inset-0 h-full w-full object-cover pointer-events-none z-10"
-                      style={{
-                        mixBlendMode: item.blendMode || 'screen',
-                        opacity: item.opacity ?? 0.85,
-                      }}
-                      autoPlay
-                      muted
-                      loop
-                      playsInline
-                    />
-                  )
+                  return <RawSourceOverlayVideo key={item.id} item={item} currentTime={currentTime} />
                 }
                 return null
               }
@@ -329,6 +375,47 @@ export default function VideoPreview() {
                 </div>
               )
             })}
+
+            {/* Speaker PiP widget(s) — mirrors render.py's dedicated
+                "speaker" branch: a small corner bubble of the main
+                video's own footage, never the full-frame/split path. */}
+            {speakerItems.filter(activeAt).map((item) => (
+              <SpeakerPreview
+                key={item.id}
+                item={item}
+                src={api.assetUrl(mainAsset)}
+                currentTime={currentTime}
+                projectWidth={width}
+                projectHeight={height}
+              />
+            ))}
+
+            {/* CTA pill overlays — mirrors render.py's drawtext box=1
+                pill rendering: same position slots as captions, same
+                icon-glyph-then-text layout. */}
+            {ctaItems.filter(activeAt).map((item) => (
+              <div
+                key={item.id}
+                className={`absolute left-0 right-0 flex justify-center px-6 z-30 ${item.position === 'top'
+                    ? 'top-6'
+                    : item.position === 'center'
+                      ? 'top-[60%] -translate-y-1/2'
+                      : 'bottom-8'
+                  }`}
+              >
+                <span
+                  className="flex items-center gap-2 rounded-full px-4 py-2 text-center font-extrabold shadow-lg shadow-black/40"
+                  style={{
+                    color: item.color || '#FFFFFF',
+                    backgroundColor: item.backgroundColor || '#7C3AED',
+                    fontSize: Math.max(14, (item.fontSize || 42) / 3.0),
+                  }}
+                >
+                  {item.ctaIcon && CTA_ICON_GLYPHS[item.ctaIcon] && <span>{CTA_ICON_GLYPHS[item.ctaIcon]}</span>}
+                  {item.text}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
 

@@ -55,6 +55,7 @@ def apply_edit_decisions(
     zoom_track = _find_or_create_track(timeline, "zoom")
     broll_track = _find_or_create_track(timeline, "broll")
     caption_track = _find_or_create_track(timeline, "caption")
+    overlay_track = _find_or_create_track(timeline, "overlay")
 
     # ---- resolve template sub-config with safe defaults ----
     broll_cfg = template.broll if template else None
@@ -74,6 +75,25 @@ def apply_edit_decisions(
 
     # caption emphasis color
     emphasis_color = getattr(caption_cfg, "emphasisColor", None) or "#FBBF24"
+
+    # overlay config — template decides HOW (which asset, duration bounds,
+    # whether looping is appropriate); the AI only ever decides WHERE/WHEN
+    # via a semantic style, never a filename or an exact ffmpeg duration.
+    overlay_cfg = template.overlay if template else None
+    overlay_video_url = getattr(template, "overlayVideoUrl", None) if template else None
+    o_min = getattr(overlay_cfg, "minDuration", 1.0) or 1.0
+    o_max = getattr(overlay_cfg, "maxDuration", 10.0) or 10.0
+    o_default = getattr(overlay_cfg, "defaultDuration", 3.0) or 3.0
+    o_supports_loop = getattr(overlay_cfg, "supportsLoop", True)
+    o_opacity = getattr(overlay_cfg, "opacity", 1.0) or 1.0
+    o_blend = getattr(overlay_cfg, "blendMode", "screen") or "screen"
+
+    # Content-aware duration per semantic style (master prompt: a short
+    # "hook" burst and a longer "ambient" texture should NOT default to
+    # the same length) — a starting hint the AI's own start/end span can
+    # still adjust, all bounded by the template's min/max so no single
+    # overlay item can run implausibly short or long for its style.
+    _STYLE_DURATION_HINT = {"hook": 4.5, "transition": 3.0, "emphasis": 3.0, "ambient": 7.0}
 
     for m in decisions.moments:
         duration = round(m.end - m.start, 3)
@@ -115,6 +135,37 @@ def apply_edit_decisions(
                     transform=Transform(scale=b_scale),
                     zIndex=10,
                     keyword=m.keyword,
+                )
+            )
+
+        elif m.type == "overlay":
+            # No template, or the template has no bundled overlay asset —
+            # the AI never invents a filename, so there is nothing to
+            # place. Skip rather than fabricate a source.
+            if not overlay_video_url:
+                continue
+            raw_span = m.end - m.start
+            hint = _STYLE_DURATION_HINT.get(m.style, o_default)
+            target = raw_span if raw_span > 0 else hint
+            item_duration = round(min(max(target, o_min), o_max), 3)
+            overlay_track.items.append(
+                TimelineItem(
+                    id=f"overlay_{uuid.uuid4().hex[:8]}",
+                    type="overlay",
+                    assetId=None,
+                    sourceUrl=overlay_video_url,
+                    start=m.start,
+                    duration=item_duration,
+                    sourceStart=0,
+                    sourceDuration=None,
+                    # ambient-style templates may loop the texture; anything
+                    # meant as a one-shot flourish (hook/transition/emphasis
+                    # burst) never loops — it trims or holds its last frame.
+                    loop=None if o_supports_loop else False,
+                    opacity=o_opacity,
+                    blendMode=o_blend,
+                    zIndex=200,
+                    templateId=template.id if template else None,
                 )
             )
 

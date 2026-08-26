@@ -41,6 +41,18 @@ export const useEditorStore = create((set, get) => ({
   isSavingCover: false,
   coverError: null,
 
+  // CTA overlay picker state (Scenes.jsx "+" menu -> Widget -> CTA)
+  ctaPickerOpen: false,
+  ctaTargetRange: null, // { start, duration, label }
+
+  // SFX Library state (Scenes.jsx "+" menu -> Effects -> Sound)
+  sfxCatalog: [],
+  isLoadingSfxCatalog: false,
+  sfxPickerOpen: false,
+  sfxTargetRange: null, // { start, label } — duration defaults server-side to the clip's own length
+  isAttachingSfx: false,
+  sfxError: null,
+
   // Milestone 2/3 state
   transcript: null,
   captionTemplates: [],
@@ -273,6 +285,136 @@ export const useEditorStore = create((set, get) => ({
     get().persist()
   },
 
+  // Speaker PiP widget: a small corner bubble mirroring the main video's
+  // own footage at that same moment (see models.py — reuses assetId and
+  // sourceStart so render.py's PiP shows the SAME frame the main clip is
+  // playing, not a second independent playhead). Simple on/off toggle per
+  // scene, like zoom — no picker needed since there's nothing to choose.
+  speakerItemsInRange(start, end) {
+    const items = get().trackByType('overlay')?.items || []
+    return items.filter((it) => it.type === 'speaker' && it.start < end && it.start + it.duration > start)
+  },
+  toggleSpeakerForScene(scene) {
+    const existing = get().speakerItemsInRange(scene.start, scene.end)
+    if (existing.length) {
+      existing.forEach((it) => get().removeItem(it.id))
+      return
+    }
+    const asset = get().mainAsset()
+    if (!asset) return
+    const { width = 1080, height = 1920 } = get().timeline.project
+    const size = Math.round(width * 0.34)
+    get().findOrCreateTrack('overlay')
+    const item = {
+      id: uid('speaker'),
+      type: 'speaker',
+      assetId: asset.id,
+      start: scene.start,
+      duration: Math.max(scene.end - scene.start, 0.3),
+      sourceStart: scene.start, // mirrors the main clip's own timeline position — see models.py
+      transform: { x: width - size - 40, y: height - size - 40, scale: 1, rotation: 0 },
+      opacity: 1,
+      zIndex: 150,
+      shape: 'circle',
+    }
+    set((s) => ({
+      timeline: {
+        ...s.timeline,
+        tracks: s.timeline.tracks.map((t) => (t.type === 'overlay' ? { ...t, items: [...t.items, item] } : t)),
+      },
+    }))
+    get().persist()
+  },
+
+  // CTA overlay: text + icon pill, placed via a picker (opts chosen by the
+  // user) rather than a plain toggle — see animations/CtaPicker (Task #15).
+  ctaItemsInRange(start, end) {
+    const items = get().trackByType('cta')?.items || []
+    return items.filter((it) => it.start < end && it.start + it.duration > start)
+  },
+  openCtaPickerForScene(scene) {
+    set({
+      ctaPickerOpen: true,
+      ctaTargetRange: { start: scene.start, duration: Math.max(scene.end - scene.start, 1.5), label: scene.text.slice(0, 40) },
+    })
+  },
+  closeCtaPicker() {
+    set({ ctaPickerOpen: false, ctaTargetRange: null })
+  },
+  attachCta({ text, ctaIcon, position = 'top', color = '#FFFFFF', backgroundColor = '#7C3AED' } = {}) {
+    const { ctaTargetRange } = get()
+    if (!ctaTargetRange || !text?.trim()) return
+    get().findOrCreateTrack('cta')
+    const item = {
+      id: uid('cta'),
+      type: 'cta',
+      start: ctaTargetRange.start,
+      duration: ctaTargetRange.duration,
+      sourceStart: 0,
+      transform: { x: 0, y: 0, scale: 1, rotation: 0 },
+      opacity: 1,
+      zIndex: 300,
+      text: text.trim(),
+      ctaIcon: ctaIcon || null,
+      position,
+      color,
+      backgroundColor,
+      fontSize: 42,
+    }
+    set((s) => ({
+      timeline: {
+        ...s.timeline,
+        tracks: s.timeline.tracks.map((t) => (t.type === 'cta' ? { ...t, items: [...t.items, item] } : t)),
+      },
+      ctaPickerOpen: false,
+      ctaTargetRange: null,
+    }))
+    get().persist()
+  },
+
+  // SFX Library: bundled placeholder sounds (see backend/app/sfx/library/
+  // README.txt) — catalog fetch + attach, same two-call shape as B-roll
+  // minus the download round-trip (nothing to download, it's bundled).
+  sfxItemsInRange(start, end) {
+    const items = get().trackByType('sfx')?.items || []
+    return items.filter((it) => it.start < end && it.start + it.duration > start)
+  },
+  async loadSfxCatalog() {
+    if (get().sfxCatalog.length || get().isLoadingSfxCatalog) return
+    set({ isLoadingSfxCatalog: true })
+    try {
+      const { results } = await api.getSfxCatalog()
+      set({ sfxCatalog: results, isLoadingSfxCatalog: false })
+    } catch (e) {
+      set({ isLoadingSfxCatalog: false, sfxError: String(e) })
+    }
+  },
+  openSfxPickerForScene(scene) {
+    set({
+      sfxPickerOpen: true,
+      sfxTargetRange: { start: scene.start, label: scene.text.slice(0, 40) },
+      sfxError: null,
+    })
+    get().loadSfxCatalog()
+  },
+  closeSfxPicker() {
+    set({ sfxPickerOpen: false, sfxTargetRange: null })
+  },
+  async attachSfxResult(entry) {
+    const { projectId, sfxTargetRange } = get()
+    if (!sfxTargetRange) return
+    set({ isAttachingSfx: true, sfxError: null })
+    try {
+      // duration omitted -> backend defaults to the clip's own natural
+      // length (see routers/sfx.py's AttachSfxBody), same "don't make the
+      // user guess a length" default as a b-roll clip's own footage.
+      const res = await api.attachSfx(projectId, { sfxId: entry.id, start: sfxTargetRange.start, volume: 1.0 })
+      set({ timeline: res.timeline, isAttachingSfx: false, sfxPickerOpen: false, sfxTargetRange: null })
+    } catch (e) {
+      set({ isAttachingSfx: false, sfxError: String(e) })
+    }
+  },
+
   openBrollLibraryForScene(scene) {
     set({
       brollLibraryOpen: true,
@@ -340,6 +482,20 @@ export const useEditorStore = create((set, get) => ({
 
   trackByType(type) {
     return get().timeline.tracks.find((t) => t.type === type)
+  },
+
+  // Speaker/CTA both land on tracks that a project's initial scaffold
+  // doesn't create up front (routers/projects.py only pre-creates video/
+  // broll/caption/audio/sfx/zoom) — same "add it the first time it's
+  // needed" pattern as the backend's own _find_or_create_track (see
+  // routers/templates.py), so an existing project gains the track
+  // instead of the item silently having nowhere to live.
+  findOrCreateTrack(type) {
+    const existing = get().trackByType(type)
+    if (existing) return existing
+    const track = { id: `track_${type}`, type, items: [] }
+    set((s) => ({ timeline: { ...s.timeline, tracks: [...s.timeline.tracks, track] } }))
+    return track
   },
 
   async persist() {

@@ -58,6 +58,11 @@ export function computeBaseVideoStyle({ activeSplitItem, zoomScale, currentTime 
       objectFit: 'cover',
       opacity,
       transform: `scale(${zoomScale})`,
+      // Base layer — explicit even though it's already first in DOM order
+      // and every overlay/caption/speaker/CTA layer sets its own z-index,
+      // so the main video can never accidentally end up on top once it's
+      // absolutely positioned for a split layout.
+      zIndex: 0,
     }
   }
 

@@ -29,6 +29,9 @@ import {
 } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
 import Scenes from './Scenes'
+import RevealAnimationModal from './animations/RevealAnimationModal'
+import { REVEAL_ANIMATIONS } from './animations/RevealAnimationPicker'
+import LayoutPicker from './animations/LayoutPicker'
 
 function Toggle({ active, onToggle }) {
   return (
@@ -1403,6 +1406,7 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
 function TrimTab() {
   const { timeline, selectedItemId, updateItem, removeItem } = useEditorStore()
   const selectedItem = timeline?.tracks?.flatMap((t) => t.items).find((it) => it.id === selectedItemId)
+  const [transitionModalOpen, setTransitionModalOpen] = useState(false)
 
   return (
     <div className="p-4">
@@ -1538,59 +1542,43 @@ function TrimTab() {
           {/* Manual Effect & Animation Controls */}
           {(selectedItem.type === 'broll' || selectedItem.type === 'overlay') && (
             <div className="flex flex-col gap-2.5 pt-2 border-t border-dark-border">
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Reveal Animation Effect</span>
-              <div className="grid grid-cols-3 gap-1 bg-dark-panel3 p-1.5 rounded-xl border border-dark-border">
-                {[
-                  { id: 'none', label: 'None' },
-                  { id: 'slide_down', label: 'Slide Down' },
-                  { id: 'slide_up', label: 'Slide Up' },
-                  { id: 'slide_left', label: 'Slide Left' },
-                  { id: 'slide_right', label: 'Slide Right' },
-                  { id: 'fade_in', label: 'Fade In' },
-                  { id: 'zoom_in', label: 'Zoom In' },
-                  { id: 'wipe_down', label: 'Wipe Down' },
-                  { id: 'bounce_in', label: 'Bounce In' },
-                ].map((anim) => {
-                  const currentAnim = selectedItem.revealAnimation || 'slide_down'
-                  const isActive = currentAnim === anim.id
-                  return (
-                    <button
-                      key={anim.id}
-                      type="button"
-                      onClick={() => updateItem(selectedItem.id, { revealAnimation: anim.id })}
-                      className={`rounded-lg px-2 py-1 text-[10px] font-bold transition-all text-center ${
-                        isActive ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400 hover:bg-dark-panel2 hover:text-slate-200'
-                      }`}
-                    >
-                      {anim.label}
-                    </button>
-                  )
-                })}
-              </div>
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400">Transition</span>
+              <button
+                type="button"
+                onClick={() => setTransitionModalOpen(true)}
+                className="flex items-center gap-3 rounded-xl bg-dark-panel3 p-2 border border-dark-border hover:border-primary/60 transition-all text-left"
+              >
+                <div className="relative h-14 w-9 shrink-0 overflow-hidden rounded-lg bg-dark-bg">
+                  <img
+                    src={`/reveal-thumbnails/${selectedItem.revealAnimation || 'slide_down'}.jpg`}
+                    alt=""
+                    className="absolute inset-0 h-full w-full object-cover"
+                    onError={(e) => { e.currentTarget.style.opacity = 0 }}
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-slate-100 truncate">
+                    {REVEAL_ANIMATIONS.find((a) => a.id === (selectedItem.revealAnimation || 'slide_down'))?.label || 'Slide Down'}
+                  </p>
+                  <p className="text-[10px] text-slate-400">Edit Transition</p>
+                </div>
+                <Wand2 className="h-4 w-4 text-primary shrink-0" />
+              </button>
+
+              {transitionModalOpen && (
+                <RevealAnimationModal
+                  value={selectedItem.revealAnimation || 'slide_down'}
+                  onChange={(id) => updateItem(selectedItem.id, { revealAnimation: id })}
+                  onClose={() => setTransitionModalOpen(false)}
+                />
+              )}
 
               <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mt-1">Screen Layout</span>
-              <div className="grid grid-cols-3 gap-1 bg-dark-panel3 p-1 rounded-xl border border-dark-border">
-                {[
-                  { id: 'full', label: 'Full Screen' },
-                  { id: 'split_top', label: 'Top Split' },
-                  { id: 'split_bottom', label: 'Bottom Split' },
-                ].map((l) => {
-                  const currentLayout = selectedItem.layout || 'full'
-                  const isActive = currentLayout === l.id
-                  return (
-                    <button
-                      key={l.id}
-                      type="button"
-                      onClick={() => updateItem(selectedItem.id, { layout: l.id })}
-                      className={`rounded-lg px-2 py-1 text-[10px] font-bold transition-all text-center ${
-                        isActive ? 'bg-primary text-white shadow-purpleGlow' : 'text-slate-400 hover:bg-dark-panel2 hover:text-slate-200'
-                      }`}
-                    >
-                      {l.label}
-                    </button>
-                  )
-                })}
-              </div>
+              <LayoutPicker
+                value={selectedItem.layout || 'full'}
+                onChange={(id) => updateItem(selectedItem.id, { layout: id })}
+                columns={3}
+              />
 
               <label className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-300 mt-1">
                 <span>Reveal Speed (s)</span>

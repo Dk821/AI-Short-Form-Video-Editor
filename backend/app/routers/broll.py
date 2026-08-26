@@ -56,6 +56,13 @@ class AttachBrollBody(BaseModel):
     layout: Optional[Literal["full", "split_top", "split_bottom"]] = None
     revealAnimation: Optional[Literal["none", "slide_down", "slide_up", "slide_left", "slide_right", "fade_in", "zoom_in", "wipe_down", "bounce_in"]] = None
     revealDuration: Optional[float] = None
+    # Dynamic overlay duration system (see backend/app/overlays/): lets a
+    # future "trim/loop this clip" UI request a source window narrower
+    # than the whole downloaded clip, and choose loop/hold behavior, when
+    # `duration` (the timeline length) exceeds it. None/omitted for both
+    # keeps today's behavior exactly as-is (whole clip, auto trim/loop).
+    sourceDuration: Optional[float] = None
+    loop: Optional[bool] = None
 
 
 @router.post("/projects/{project_id}/broll/attach")
@@ -89,6 +96,8 @@ def attach_broll(project_id: str, body: AttachBrollBody):
         "start": body.start,
         "duration": body.duration,
         "sourceStart": 0,
+        "sourceDuration": body.sourceDuration,
+        "loop": body.loop,
         "transform": {"x": body.x, "y": body.y, "scale": scale, "rotation": 0},
         "opacity": 1,
         "zIndex": 10,

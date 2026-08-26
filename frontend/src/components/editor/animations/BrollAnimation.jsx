@@ -1,5 +1,6 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { DRIFT_ANIMS, brollDriftPct, BROLL_OVERSCAN } from './driftMotion'
+import useOverlaySourceSync from './useOverlaySourceSync'
 
 export function computeRevealStyle({ item, currentTime, layout }) {
   const anim = item.revealAnimation || 'slide_down'
@@ -56,7 +57,11 @@ export function computeRevealStyle({ item, currentTime, layout }) {
     transform,
     opacity,
     clipPath,
-    zIndex: 15,
+    // Overlay layer, consistently above the base video (unset/z-0) and
+    // below captions (z-20) / speaker+CTA (z-30) — see VideoPreview.jsx's
+    // layer comment. Matches RawSourceOverlayVideo and the template
+    // overlay-video fallback, which both use the same z-10.
+    zIndex: 10,
     WebkitMaskImage: featherMask,
     maskImage: featherMask,
   }
@@ -67,12 +72,21 @@ export default function BrollAnimation({ item, asset, currentTime, src }) {
   const isBroll = item.type === 'broll'
   const layout = item.layout || (isBroll ? 'split_top' : 'full')
 
+  // Dynamic overlay/broll duration & timing (see backend/app/overlays/ and
+  // lib/overlayResolver.js): seeks this element to the right point in its
+  // SOURCE (respecting sourceStart) and decides whether it should loop,
+  // trim, or hold on its last frame once the source runs out — instead of
+  // always starting at source t=0 and always looping, which used to be
+  // this component's only behavior regardless of what the item asked for.
+  const [videoEl, setVideoEl] = useState(null)
+  useOverlaySourceSync(videoEl, item, currentTime)
+
   if (isBroll || layout === 'split_top' || layout === 'split_bottom') {
     const style = computeRevealStyle({ item, currentTime, layout })
     return isVideo ? (
-      <video key={item.id} src={src} className="absolute shadow-2xl z-15 object-cover" style={style} autoPlay muted loop playsInline />
+      <video key={item.id} ref={setVideoEl} src={src} className="absolute shadow-2xl object-cover" style={style} autoPlay muted playsInline />
     ) : (
-      <img key={item.id} src={src} className="absolute shadow-2xl z-15 object-cover" style={style} />
+      <img key={item.id} src={src} className="absolute shadow-2xl object-cover" style={style} />
     )
   }
 
@@ -85,12 +99,14 @@ export default function BrollAnimation({ item, asset, currentTime, src }) {
     height: '100%',
     opacity: item.opacity ?? 1,
     mixBlendMode: blendMode !== 'normal' ? blendMode : undefined,
-    zIndex: 15,
+    // Same overlay-layer z-index as the split/broll branch above — see the
+    // comment on computeRevealStyle's own zIndex for the full layer order.
+    zIndex: 10,
   }
 
   return isVideo ? (
-    <video key={item.id} src={src} className="absolute shadow-2xl z-10 object-cover" style={style} autoPlay muted loop playsInline />
+    <video key={item.id} ref={setVideoEl} src={src} className="absolute shadow-2xl object-cover" style={style} autoPlay muted playsInline />
   ) : (
-    <img key={item.id} src={src} className="absolute shadow-2xl z-10 object-cover" style={style} />
+    <img key={item.id} src={src} className="absolute shadow-2xl object-cover" style={style} />
   )
 }

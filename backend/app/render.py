@@ -28,6 +28,24 @@ import tempfile
 from typing import Dict, List
 
 from .models import Timeline, TimelineItem, Asset
+from .overlays import plan_for_item
+from .templates.registry import resolve_overlay_path
+from .sfx import resolve_sfx_path
+
+
+def _resolve_bundled_source(source_path: str | None) -> str | None:
+    """A non-asset item's `sourceUrl` (a template-bundled overlay video, or
+    a catalog sfx clip — see routers/templates.py's _apply_overlay_video
+    and routers/sfx.py) is a browser-servable API URL like
+    '/api/templates/overlays/x.mp4' or '/api/sfx/library/x.mp3', not a
+    real filesystem path — ffmpeg needs the latter. Map it back to the
+    bundled file it actually came from; anything that isn't one of our
+    own bundled-asset routes (an already-real path, e.g. asset.url) is
+    returned unchanged."""
+    if not source_path:
+        return source_path
+    resolved = resolve_overlay_path(source_path) or resolve_sfx_path(source_path)
+    return str(resolved) if resolved else source_path
 
 
 # Hold-phase parallax drift — mirrors frontend/src/components/editor/
@@ -44,6 +62,27 @@ _MAX_MAIN_DRIFT_PCT = 2.0
 # vertically, so it only parallaxes for the vertical-reading subset.
 _DIRECTIONAL_DRIFT_ANIMS = {"slide_down", "slide_up", "slide_left", "slide_right", "bounce_in"}
 _VERTICAL_DRIFT_ANIMS = {"slide_down", "slide_up", "bounce_in"}
+
+# Speaker PiP bubble: a small corner copy of the main video, cropped square
+# and masked circle/rounded. Sized as a fraction of frame width at
+# transform.scale=1 so it reads consistently across 1080x1920 and other
+# project dimensions, then scaled by the item's own transform.scale.
+_SPEAKER_BASE_FRAC = 0.34
+
+# CTA overlay icon names (set by the frontend's CtaPicker — see Task #15) ->
+# a unicode glyph prefixed onto the pill text. ffmpeg's drawtext has no
+# notion of an icon asset, so this is the pragmatic MVP rendering: no icon
+# name (or an unrecognized one) just renders the plain text, no glyph.
+_CTA_ICON_GLYPHS = {
+    "arrow": "→",
+    "heart": "♥",
+    "cart": "\U0001F6D2",
+    "link": "\U0001F517",
+    "star": "★",
+    "fire": "\U0001F525",
+    "bell": "\U0001F514",
+    "play": "▶",
+}
 
 
 def _drift_frac_expr(start: float, dur: float) -> str:
@@ -97,6 +136,29 @@ def probe_duration(path: str) -> float:
         return 0.0
 
 
+_source_duration_cache: Dict[str, float] = {}
+
+
+def _probed_source_duration(path: str, asset: Asset | None) -> float | None:
+    """The REAL length of a broll/overlay source file — used by the
+    overlay resolver as the fallback "available window" for any item
+    that doesn't explicitly set sourceDuration (i.e. every pre-existing
+    item), so old projects keep rendering exactly as they did before
+    this system existed. Prefers the already-probed Asset.duration
+    (set at upload/download time — see pexels.py); falls back to
+    ffprobe'ing template-bundled sourceUrl files directly, cached by
+    path since those are static files re-used across many renders."""
+    if asset and asset.duration:
+        return asset.duration
+    if path in _source_duration_cache:
+        return _source_duration_cache[path]
+    dur = probe_duration(path)
+    if dur > 0:
+        _source_duration_cache[path] = dur
+        return dur
+    return None
+
+
 def probe_dimensions(path: str) -> tuple[int, int]:
     out = subprocess.run(
         [
@@ -139,6 +201,7 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
     audio_track = tracks_by_type.get("audio")
     sfx_track = tracks_by_type.get("sfx")
     zoom_track = tracks_by_type.get("zoom")
+    cta_track = tracks_by_type.get("cta")
 
     if not video_track or not video_track.items:
         raise ValueError("Timeline has no items on the video track")
@@ -252,7 +315,7 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
                 f"color=c=white:s={W}x{half_h},format=rgba[mwipe{i}src];"
                 f"[mwipe{i}src]geq=r='255':g='255':b='255':a='{a_expr}'[mwipe{i}]"
             )
-            filters.append(f"[{raw}][mwipe{i}]alphamerge[mainhalfwiped{i}]")
+            filters.append(f"[{raw}][mwipe{i}]alphamerge=shortest=1[mainhalfwiped{i}]")
             label = f"mainhalfwiped{i}"
             y_expr = f"{main_rest_y}"
 
@@ -295,23 +358,148 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
     # Broll & Overlay tracks.
     for i, item in enumerate(sorted(all_overlay_items, key=lambda it: it.zIndex)):
         asset = assets.get(item.assetId) if item.assetId else None
-        source_path = asset.url if asset else item.sourceUrl
+        source_path = asset.url if asset else _resolve_bundled_source(item.sourceUrl)
         if not source_path:
             continue
         is_video = (asset and asset.kind == "video") or (item.sourceUrl and item.sourceUrl.endswith((".mp4", ".webm")))
-        extra = ["-t", str(item.duration)]
-        if is_video:
-            extra = ["-stream_loop", "-1", "-ss", str(item.sourceStart)] + extra
-        else:
-            extra = ["-loop", "1"] + extra
-        idx = add_input(source_path, extra)
+
+        # Dynamic overlay duration: the item's `duration` is a TIMELINE
+        # length, independent of this source file's own physical length
+        # (see overlays/resolver.py). A bad item (duration<=0, negative
+        # start/sourceStart, sourceStart>=sourceDuration) is skipped —
+        # logged, not fatal — rather than aborting the whole export, since
+        # this graph is built from possibly-old data that predates
+        # validation being wired into save_timeline.
+        hold_duration = 0.0
+
+        # A speaker item that reuses the main video's own footage (the
+        # normal case — see models.py) must NOT be opened as a second
+        # `-i` on the same physical file: doing so builds fine but was
+        # found, while building this feature, to deadlock this ffmpeg
+        # build's scheduler as soon as an sfx/audio amix was also present
+        # in the graph (two independent decoders on one file, one of them
+        # gated behind an audio mix the other doesn't feed). Trimming the
+        # ALREADY-DECODED main stream (`{main_idx}:v`) with a filter-level
+        # trim instead sidesteps that entirely, and is cheaper too since
+        # the file is only decoded once either way. This only covers
+        # trim/hold, not an explicit forced loop (rare for a same-source
+        # speaker bubble, since it never outlasts the main clip it mirrors)
+        # — that one case still falls through to the normal add_input path.
+        reuse_main_input = (
+            item.type == "speaker" and asset is not None and asset.url == main_asset.url
+        )
+
+        if reuse_main_input:
+            try:
+                plan = plan_for_item(item, probed_source_duration=_probed_source_duration(source_path, asset))
+            except ValueError as e:
+                print(f"[render] skipping overlay/broll item '{item.id}': {e}")
+                continue
+            if plan.mode != "loop":
+                hold_duration = plan.hold_duration
+                trimmed = f"spktrim{i}"
+                filters.append(
+                    f"[{main_idx}:v]trim=start={plan.source_start}:duration={plan.consume},"
+                    f"setpts=PTS-STARTPTS[{trimmed}]"
+                )
+                video_in = trimmed
+            else:
+                reuse_main_input = False  # forced-loop edge case — fall through below
+
+        if not reuse_main_input:
+            if is_video:
+                try:
+                    plan = plan_for_item(item, probed_source_duration=_probed_source_duration(source_path, asset))
+                except ValueError as e:
+                    print(f"[render] skipping overlay/broll item '{item.id}': {e}")
+                    continue
+                extra = ["-ss", str(plan.source_start), "-t", str(plan.consume)]
+                if plan.mode == "loop":
+                    extra = ["-stream_loop", "-1"] + extra
+                hold_duration = plan.hold_duration
+            else:
+                extra = ["-loop", "1", "-t", str(item.duration)]
+            idx = add_input(source_path, extra)
+            video_in = f"{idx}:v"
+
+        # "hold" mode: the source ran out before the timeline slot did and
+        # looping is disabled — clone the last decoded frame for the
+        # remainder so the layer still covers its full on-screen duration
+        # without ever repeating. Every later reference to this input's
+        # video stream in this loop iteration goes through `video_in`
+        # instead of the raw `{idx}:v`, so this applies uniformly whether
+        # the item ends up on the broll/split path or the float-on-top path.
+        if hold_duration > 0:
+            filters.append(f"[{video_in}]tpad=stop_mode=clone:stop_duration={hold_duration}[ovhold{i}]")
+            video_in = f"ovhold{i}"
+
+        # PRE-EXISTING BUG, fixed here as part of this "Timing" work: the
+        # overlay/broll input stream starts decoding from its own PTS 0 at
+        # the same moment the WHOLE render starts, in lockstep with the
+        # main video — not at item.start. Without correcting for that, the
+        # `enable='between(t,start,end)'` below correctly gates WHEN the
+        # layer is visible, but the CONTENT shown is whatever the source
+        # happens to be at (sourceStart + <seconds since the render
+        # began>) instead of (sourceStart + <seconds since this item went
+        # active>) — i.e. any item with start > 0 silently shows the wrong
+        # slice of its source. Shifting this stream's presentation
+        # timestamps forward by item.start re-aligns its local clock with
+        # the main timeline's clock at the exact moment enable flips true,
+        # so elapsed-since-item-start (not elapsed-since-render-start)
+        # is what determines the visible source frame — required for
+        # strict preview/export parity per item, not just for item 0.
+        if item.start > 0:
+            filters.append(f"[{video_in}]setpts=PTS+{item.start}/TB[ovshift{i}]")
+            video_in = f"ovshift{i}"
 
         label_scaled = f"broll{i}s"
         end = item.start + item.duration
         nxt = f"ov{i}"
         layout = getattr(item, "layout", "full") or "full"
 
-        if item.type == "broll" or layout in ("full", "split_top", "split_bottom"):
+        if item.type == "speaker":
+            # Picture-in-picture bubble: a small square (or rounded-square)
+            # crop of the main video's own footage, masked circle/rounded
+            # per item.shape and positioned by transform.x/y (raw pixel
+            # coordinates — same convention the generic float-on-top branch
+            # below uses for broll/overlay items). Never goes through the
+            # full-frame/split layout branch — a speaker bubble is always
+            # a small corner element regardless of item.layout.
+            size = max(24, int(W * _SPEAKER_BASE_FRAC * (item.transform.scale or 1)))
+            raw_label = f"spk{i}raw"
+            filters.append(
+                f"[{video_in}]scale={size}:{size}:force_original_aspect_ratio=increase,"
+                f"crop={size}:{size},fps={fps},format=rgba,"
+                f"colorchannelmixer=aa={item.opacity}[{raw_label}]"
+            )
+
+            shape = getattr(item, "shape", "circle") or "circle"
+            if shape == "circle":
+                r = size / 2
+                a_expr = f"if(lte(pow(X-{r},2)+pow(Y-{r},2),pow({r},2)),255,0)"
+            else:  # "rounded" — a rounded square via four corner-circle tests
+                rad = max(4, int(size * 0.16))
+                inner = size - rad
+                a_expr = (
+                    f"if(lt(X,{rad})*lt(Y,{rad}),if(lte(pow(X-{rad},2)+pow(Y-{rad},2),pow({rad},2)),255,0),"
+                    f"if(gt(X,{inner})*lt(Y,{rad}),if(lte(pow(X-{inner},2)+pow(Y-{rad},2),pow({rad},2)),255,0),"
+                    f"if(lt(X,{rad})*gt(Y,{inner}),if(lte(pow(X-{rad},2)+pow(Y-{inner},2),pow({rad},2)),255,0),"
+                    f"if(gt(X,{inner})*gt(Y,{inner}),if(lte(pow(X-{inner},2)+pow(Y-{inner},2),pow({rad},2)),255,0),"
+                    f"255))))"
+                )
+            filters.append(
+                f"color=c=white:s={size}x{size},format=rgba[spkmsrc{i}];"
+                f"[spkmsrc{i}]geq=r='255':g='255':b='255':a='{a_expr}'[spkmask{i}]"
+            )
+            filters.append(f"[{raw_label}][spkmask{i}]alphamerge=shortest=1[spk{i}]")
+
+            rest_x = int(item.transform.x)
+            rest_y = int(item.transform.y)
+            filters.append(
+                f"[{current}][spk{i}]overlay=x={rest_x}:y={rest_y}:"
+                f"enable='between(t,{item.start},{end})'[{nxt}]"
+            )
+        elif item.type == "broll" or layout in ("full", "split_top", "split_bottom"):
             target_h = H if layout == "full" else (H // 2)
             rest_y = (H // 2) if layout == "split_bottom" else 0
             anim = getattr(item, "revealAnimation", "slide_down") or "slide_down"
@@ -322,14 +510,14 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
 
             if anim == "fade_in":
                 filters.append(
-                    f"[{idx}:v]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
+                    f"[{video_in}]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
                     f"crop={W}:{target_h},fps={fps},format=rgba,"
                     f"colorchannelmixer=aa={item.opacity},"
                     f"fade=t=in:st={item.start}:d={dur}:alpha=1[{raw_label}]"
                 )
             elif anim in ("zoom_in", "pop"):
                 filters.append(
-                    f"[{idx}:v]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
+                    f"[{video_in}]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
                     f"crop={W}:{target_h},fps={fps},format=rgba,"
                     f"scale=w='max(16,int({W}*max(0.05,{p_expr})))':h='max(16,int({target_h}*max(0.05,{p_expr})))':eval=frame,"
                     f"pad={W}:{target_h}:'({W}-iw)/2':'({target_h}-ih)/2':color=black@0,"
@@ -337,13 +525,13 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
                 )
             elif anim == "wipe_down":
                 filters.append(
-                    f"[{idx}:v]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
+                    f"[{video_in}]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
                     f"crop=w={W}:h='max(1,int({target_h}*{p_expr}))':x=0:y=0:exact=1,fps={fps},format=rgba,"
                     f"colorchannelmixer=aa={item.opacity}[{raw_label}]"
                 )
             else:
                 filters.append(
-                    f"[{idx}:v]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
+                    f"[{video_in}]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
                     f"crop={W}:{target_h},fps={fps},format=rgba,"
                     f"colorchannelmixer=aa={item.opacity}[{raw_label}]"
                 )
@@ -359,7 +547,7 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
                     f"color=c=white:s={W}x{target_h},format=rgba[fmask{i}src];"
                     f"[fmask{i}src]geq=r='255':g='255':b='255':a='{a_expr}'[fmask{i}]"
                 )
-                filters.append(f"[{raw_label}][fmask{i}]alphamerge[{label_scaled}]")
+                filters.append(f"[{raw_label}][fmask{i}]alphamerge=shortest=1[{label_scaled}]")
             else:
                 label_scaled = raw_label
 
@@ -400,7 +588,7 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
             scale = item.transform.scale
             ow = int(W * (1.0 if item.type == "overlay" else 0.5) * scale)
             filters.append(
-                f"[{idx}:v]scale={ow}:-1,fps={fps},format=rgba,"
+                f"[{video_in}]scale={ow}:-1,fps={fps},format=rgba,"
                 f"colorchannelmixer=aa={item.opacity}[{label_scaled}]"
             )
             rest_x = int(item.transform.x)
@@ -469,6 +657,42 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
                 f"if(gt(t,{end}-{fade_dur}),({end}-t)/{fade_dur},1))'"
             )
 
+        parts.append(f"enable='between(t,{item.start},{end})'")
+        filters.append(f"[{current}]drawtext={':'.join(parts)}[{nxt}]")
+        current = nxt
+
+    # CTA pill overlays. Rendered the same way as captions (drawtext with
+    # its own box=1 background) since ffmpeg's drawtext has no native pill/
+    # rounded-rect shape — box=1 with a generous boxborderw is the pragmatic
+    # MVP approximation of a rounded button. item.ctaIcon (a name the
+    # frontend's CtaPicker offers — see Task #15) maps to a unicode glyph
+    # prefixed onto the text; an unrecognized/missing icon just renders
+    # plain text.
+    cta_items: List[TimelineItem] = cta_track.items if cta_track else []
+    for i, item in enumerate(cta_items):
+        glyph = _CTA_ICON_GLYPHS.get(item.ctaIcon or "", "")
+        raw_text = f"{glyph}  {item.text or ''}".strip() if glyph else (item.text or "")
+        text = _escape_drawtext(raw_text)
+        end = item.start + item.duration
+        y = _caption_y_expr(item.position or "bottom", H)
+        nxt = f"cta{i}"
+
+        parts = [
+            f"text='{text}'",
+            f"fontsize={item.fontSize or 42}",
+            f"fontcolor={item.color or '#FFFFFF'}",
+            "x=(w-text_w)/2",
+            f"y={y}",
+            f"box=1:boxcolor={_css_to_ffmpeg_color(item.backgroundColor or '#7C3AED')}:boxborderw=24",
+        ]
+        if item.fontFamily:
+            parts.append(f"font='{item.fontFamily}'")
+
+        fade_dur = min(0.18, item.duration / 2)
+        parts.append(
+            f"alpha='if(lt(t,{item.start}+{fade_dur}),(t-{item.start})/{fade_dur},"
+            f"if(gt(t,{end}-{fade_dur}),({end}-t)/{fade_dur},1))'"
+        )
         parts.append(f"enable='between(t,{item.start},{end})'")
         filters.append(f"[{current}]drawtext={':'.join(parts)}[{nxt}]")
         current = nxt
@@ -606,11 +830,19 @@ def render_timeline(
         _run_ffmpeg(cmd_prefix, filter_complex, cmd_suffix, "ffmpeg failed")
         return
 
-    # Audio: main clip audio + audio track + sfx track, mixed.
+    # Audio: main clip audio + audio track + sfx track, mixed. An sfx item
+    # may come from the bundled placeholder SFX library (Task #12) rather
+    # than an uploaded project asset — those ship as template-style
+    # `sourceUrl` files, same fallback pattern as broll/overlay's sourceUrl
+    # support above, so a bundled sfx renders without ever needing an entry
+    # in project.assets.
     audio_labels = [f"{main_idx}:a"]
     for item in (audio_track.items if audio_track else []) + (sfx_track.items if sfx_track else []):
-        asset = assets[item.assetId]
-        idx = add_input(asset.url, ["-ss", str(item.sourceStart), "-t", str(item.duration)])
+        asset = assets.get(item.assetId) if item.assetId else None
+        source_path = asset.url if asset else _resolve_bundled_source(item.sourceUrl)
+        if not source_path:
+            continue
+        idx = add_input(source_path, ["-ss", str(item.sourceStart), "-t", str(item.duration)])
         delay_ms = int(item.start * 1000)
         vol = item.volume if item.volume is not None else 1.0
         label = f"a{idx}"

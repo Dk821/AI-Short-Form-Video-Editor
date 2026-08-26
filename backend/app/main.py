@@ -9,12 +9,13 @@ from fastapi.staticfiles import StaticFiles
 backend_dir = Path(__file__).parent.parent
 load_dotenv(backend_dir / '.env', override=True)
 
-from .routers import projects, upload, export, transcription, captions, auto_edit, templates, broll
+from .routers import projects, upload, export, transcription, captions, auto_edit, templates, broll, sfx
 from .storage import UPLOADS_DIR
 
 # Static asset directories for template previews
 _APP_DIR = Path(__file__).parent
 TEMPLATES_LIB_DIR = _APP_DIR / "templates" / "library"
+SFX_LIB_DIR = _APP_DIR / "sfx" / "library"
 
 app = FastAPI(title="AI Short-Form Video Editor API", version="0.1.0")
 
@@ -33,6 +34,7 @@ app.include_router(captions.router)       # Milestone 2: caption templates + gen
 app.include_router(auto_edit.router)      # Milestone 3: Gemini auto-edit
 app.include_router(templates.router)      # Template System: reusable video templates
 app.include_router(broll.router)          # B-roll Library: manual search + attach
+app.include_router(sfx.router)            # SFX Library: bundled placeholder sounds, browse + attach
 
 # Local-dev stand-in for a CDN in front of S3/R2 (see storage.py).
 app.mount("/api/uploads", StaticFiles(directory=UPLOADS_DIR), name="uploads")
@@ -48,6 +50,15 @@ app.mount(
     "/api/templates/overlays",
     StaticFiles(directory=str(TEMPLATES_LIB_DIR / "overlays")),
     name="template_overlays",
+)
+
+# Bundled SFX audio files (see app/sfx/library/README.txt) — same
+# "static asset shipped with the source tree" contract as the template
+# overlays above.
+app.mount(
+    "/api/sfx/library",
+    StaticFiles(directory=str(SFX_LIB_DIR)),
+    name="sfx_library",
 )
 
 

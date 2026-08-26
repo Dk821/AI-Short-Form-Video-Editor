@@ -31,12 +31,14 @@ Return ONLY a JSON object with this exact shape, no prose, no markdown fences:
   "description": "a 1-2 sentence social caption/description suggestion",
   "moments": [
     {
-      "type": "zoom" | "emphasis_caption" | "broll_suggestion",
+      "type": "zoom" | "emphasis_caption" | "broll_suggestion" | "overlay",
       "start": <seconds, number>,
       "end": <seconds, number>,
       "reason": "why this moment matters, one short phrase",
       "keyword": "2-4 word visual search term, ONLY for broll_suggestion, else null",
-      "scale": <number between 1.1 and 1.6, ONLY for zoom, else null>
+      "scale": <number between 1.1 and 1.6, ONLY for zoom, else null>,
+      "style": "hook" | "transition" | "emphasis" | "ambient", "ONLY for overlay, else null",
+      "confidence": <number between 0 and 1, ONLY for overlay, else null>
     }
   ]
 }
@@ -46,18 +48,27 @@ Rules:
 - Use "zoom" for at most 2-4 of the most punch-worthy moments (surprise, emphasis, punchlines).
 - Use "broll_suggestion" when a concrete visual noun/place/object is said and cutaway footage would help.
 - Use "emphasis_caption" for at most 1-2 of the single most important sentences to visually emphasize.
+- Use "overlay" for at most 1-3 moments where a decorative video texture (light leak, grain,
+  glitch, flash) would add energy — never name a filename, only a semantic "style":
+  "hook" = right at the video's opening hook, "transition" = a scene/topic change,
+  "emphasis" = a punchline or surprising beat, "ambient" = a longer, subtle background texture.
+  You decide WHERE, WHEN, and roughly how long (via start/end) and WHY (reason/confidence) —
+  never a specific asset, filename, or exact ffmpeg-level duration; the app's template picks the
+  actual asset and clamps the final on-screen duration to what looks right for that style.
 - Do not overlap moments of the same type.
 - Do not invent timestamps that aren't supported by the transcript.
 """
 
 
 class EditMoment(BaseModel):
-    type: Literal["zoom", "emphasis_caption", "broll_suggestion"]
+    type: Literal["zoom", "emphasis_caption", "broll_suggestion", "overlay"]
     start: float
     end: float
     reason: Optional[str] = None
     keyword: Optional[str] = None
     scale: Optional[float] = None
+    style: Optional[Literal["hook", "transition", "emphasis", "ambient"]] = None
+    confidence: Optional[float] = None
 
 
 class EditDecisions(BaseModel):
@@ -226,6 +237,11 @@ def validate_decisions(raw: dict, duration: float) -> EditDecisions:
             continue
         if m.type == "zoom":
             m.scale = min(max(m.scale or 1.25, 1.05), 2.0)
+        if m.type == "overlay":
+            if not m.style:
+                continue
+            if m.confidence is not None:
+                m.confidence = min(max(m.confidence, 0.0), 1.0)
 
         overlaps = any(
             not (m.end <= s or m.start >= e) for s, e in seen_windows.get(m.type, [])

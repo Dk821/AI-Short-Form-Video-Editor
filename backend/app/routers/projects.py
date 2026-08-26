@@ -6,6 +6,7 @@ from pydantic import BaseModel
 
 from .. import db
 from ..models import Project, Timeline, ProjectMeta, Asset
+from ..overlays import validate_timeline_overlays
 from ..render import capture_frame
 from ..storage import cover_path_for
 from ..templates import get_template
@@ -92,6 +93,16 @@ def save_timeline(project_id: str, timeline: Timeline):
     project = db.get_project(project_id)
     if not project:
         raise HTTPException(404, "Project not found")
+
+    # Dynamic overlay duration/timing validation (broll + overlay tracks
+    # only — see backend/app/overlays/validator.py): duration<=0,
+    # negative start/sourceStart, or sourceStart>=sourceDuration are
+    # rejected here rather than silently reaching the renderer, which
+    # would otherwise have to guess what was meant.
+    overlay_errors = validate_timeline_overlays(timeline)
+    if overlay_errors:
+        raise HTTPException(400, "Invalid overlay/broll timing: " + "; ".join(overlay_errors))
+
     project["timeline"] = timeline.model_dump()
     db.put_project(project_id, project)
     return project

@@ -1,422 +1,382 @@
-import { useEffect, useRef, useState } from 'react'
-import { useEditorStore } from '../../stores/editorStore'
+import { useState } from 'react'
 import {
-  Wand2,
-  ZoomIn,
-  Plus,
-  Film,
-  Image as ImageIcon,
-  Music,
-  Repeat2,
-  MoreHorizontal,
-  Sparkles,
-  Video,
-  Trash2,
-  ArrowLeft,
-  ChevronRight,
-  Check,
+  ZoomIn, Film, Plus, Wand2, Trash2, MessageSquare, Check, Music, MousePointerClick, User, RefreshCw, Scissors,
 } from 'lucide-react'
+import { useEditorStore } from '../../stores/editorStore'
+import RevealAnimationModal from './animations/RevealAnimationModal'
 
-// Kept in sync with BrollPicker.jsx's attach-time options so editing an
-// already-placed b-roll's transition offers the exact same choices.
-const REVEAL_ANIMATIONS = [
-  { id: 'none', label: 'None' },
-  { id: 'slide_down', label: 'Slide Down' },
-  { id: 'slide_up', label: 'Slide Up' },
-  { id: 'slide_left', label: 'Slide Left' },
-  { id: 'slide_right', label: 'Slide Right' },
-  { id: 'fade_in', label: 'Fade In' },
-  { id: 'zoom_in', label: 'Zoom In' },
-  { id: 'wipe_down', label: 'Wipe Down' },
-  { id: 'bounce_in', label: 'Bounce In' },
-]
-
-const LAYOUTS = [
-  { id: 'full', label: 'Full Screen' },
-  { id: 'split_top', label: 'Top Split' },
-  { id: 'split_bottom', label: 'Bottom Split' },
-]
-
+/**
+ * Sentence-level scene view. One row per sentence-ish chunk of the
+ * video's transcript (see utils/transcript.js's segmentTranscriptIntoScenes,
+ * driven by store.scenes()).
+ *
+ * Layout: a stacked header (time range, then the sentence text) followed
+ * by a row of LABELED icon+text pill chips — Zoom and Speaker are plain
+ * on/off toggles, B-roll/Sound/CTA are the same chip in two states (an
+ * outlined "not attached yet" chip that attaches directly on click, or a
+ * filled "attached" chip that opens a small Replace/Delete-style menu on
+ * click) — plus a trailing "+" chip that opens the same categorized menu
+ * as before for whichever of B-roll/Sound/CTA isn't attached. Scene cards
+ * are separated by a thin divider with a small scissors badge, standing
+ * in for the cut between the two sentences/shots.
+ */
 export default function Scenes() {
   const {
-    scenes,
-    brollItemsInRange,
-    zoomItemsInRange,
-    openBrollLibraryForScene,
-    toggleZoomForScene,
-    runAutoEdit,
-    isAutoEditing,
-    autoEditResult,
-    autoEditError,
-    transcript,
-    addCaption,
-    setCurrentTime,
-    updateItem,
-    removeItem,
+    timeline, scenes, zoomItemsInRange, brollItemsInRange, sfxItemsInRange, ctaItemsInRange,
+    speakerItemsInRange, toggleZoomForScene, toggleSpeakerForScene,
+    openBrollLibraryForScene, openSfxPickerForScene, openCtaPickerForScene,
+    removeItem, updateItem, transcribeMain, isTranscribing, mainAsset,
   } = useEditorStore()
 
+  const [openMenuKey, setOpenMenuKey] = useState(null) // `${sceneId}:${'broll'|'sfx'|'cta'|'add'}`
+  const [transitionItemId, setTransitionItemId] = useState(null)
+  // Derived fresh from `timeline` on every render (not a snapshot) — so
+  // after updateItem() applies a pick, the modal's own checkmark moves to
+  // the new selection immediately instead of staying pinned to whatever
+  // was selected when the menu was first opened.
+  const transitionItem = transitionItemId
+    ? timeline?.tracks?.flatMap((t) => t.items).find((it) => it.id === transitionItemId)
+    : null
+
   const sceneList = scenes()
-  const hasTranscript = !!transcript?.words?.length
-  const [activeSceneId, setActiveSceneId] = useState(null)
+  const hasMainVideo = !!mainAsset()
 
-  // Dropdown shown when clicking an already-attached b-roll indicator:
-  // 'menu' = the 3-option list, 'transition' = the inline animation/layout editor.
-  const [brollMenuSceneId, setBrollMenuSceneId] = useState(null)
-  const [brollMenuView, setBrollMenuView] = useState('menu')
-  const brollMenuRef = useRef(null)
-
-  useEffect(() => {
-    if (!brollMenuSceneId) return
-    function handleClickOutside(e) {
-      if (brollMenuRef.current && !brollMenuRef.current.contains(e.target)) {
-        setBrollMenuSceneId(null)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [brollMenuSceneId])
-
-  if (!hasTranscript) {
+  if (!sceneList.length) {
     return (
-      <div className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-dark-panel2 text-slate-500 shadow-md">
-          <Film className="h-6 w-6" />
-        </div>
-        <div>
-          <h3 className="text-xs font-bold text-slate-200">No scenes generated yet</h3>
-          <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
-            Transcribe your main video first. Scene segments will be auto-generated from your speech transcript.
+      <div className="p-4">
+        <div className="flex flex-col items-center justify-center gap-2 rounded-2xl bg-dark-panel2/80 shadow-md shadow-black/40 py-16 text-center px-6">
+          <MessageSquare className="h-8 w-8 text-slate-600 stroke-[1.5]" />
+          <p className="text-xs font-bold text-slate-200">No scenes yet</p>
+          <p className="text-[11px] text-slate-400 max-w-[240px]">
+            Scenes come from your video's transcript — transcribe it first, then
+            each sentence shows up here for quick zoom, b-roll, sound, and widget edits.
           </p>
+          <button
+            onClick={() => transcribeMain()}
+            disabled={!hasMainVideo || isTranscribing}
+            className="mt-1 rounded-xl bg-primary px-4 py-2 text-xs font-bold text-white shadow-purpleGlow hover:bg-primary-hover transition disabled:opacity-40"
+          >
+            {isTranscribing ? 'Transcribing...' : 'Transcribe Video'}
+          </button>
         </div>
       </div>
     )
   }
 
+  function closeMenus() {
+    setOpenMenuKey(null)
+  }
+
+  function addNewBroll(scene, existingItems) {
+    // Replace rather than stack — leaving the old clip in place while a
+    // second one is attached to the same time range would just overlap
+    // two b-roll layers on top of each other.
+    existingItems.forEach((it) => removeItem(it.id))
+    openBrollLibraryForScene(scene)
+    closeMenus()
+  }
+
+  function deleteItems(items) {
+    items.forEach((it) => removeItem(it.id))
+    closeMenus()
+  }
+
+  function replaceSfx(scene, existingItems) {
+    existingItems.forEach((it) => removeItem(it.id))
+    openSfxPickerForScene(scene)
+    closeMenus()
+  }
+
+  function replaceCta(scene, existingItems) {
+    existingItems.forEach((it) => removeItem(it.id))
+    openCtaPickerForScene(scene)
+    closeMenus()
+  }
+
+  // Shared look for every pill in the row — active (attached / toggled on)
+  // vs. idle, so Zoom/Speaker toggles and B-roll/Sound/CTA chips read as
+  // one consistent family instead of two different button styles.
+  const pillBase =
+    'flex items-center gap-1.5 rounded-full px-2.5 py-1.5 text-[11px] font-bold whitespace-nowrap transition'
+  const pillActive = 'bg-primary text-white shadow-purpleGlow'
+  const pillIdle = 'bg-dark-panel3 text-slate-400 border border-dark-border hover:bg-dark-panel hover:text-slate-200'
+
   return (
-    <div className="flex flex-col h-full bg-dark-panel font-body text-slate-100 select-none">
-      {/* Header bar */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-dark-border bg-dark-panel">
-        <span className="text-xs font-bold tracking-tight text-slate-200 uppercase">Scenes</span>
-        <div className="flex items-center gap-2">
-          {/* Magic B-rolls button */}
-          <button
-            onClick={() => runAutoEdit()}
-            disabled={isAutoEditing}
-            className="relative flex items-center gap-1.5 rounded-full bg-dark-panel2 border border-dark-border px-3 py-1.5 text-xs font-bold text-slate-200 shadow-sm hover:bg-dark-panel3 hover:border-primary/50 transition disabled:opacity-40"
-          >
-            <Sparkles className="h-3.5 w-3.5 text-amber-400" />
-            {isAutoEditing ? 'Planning...' : 'Magic B-rolls'}
-            <span className="absolute -top-1 -right-0.5 text-[9px]">⚡</span>
-          </button>
+    <div className="flex flex-col p-4">
+      {sceneList.map((scene, idx) => {
+        const zoomActive = zoomItemsInRange(scene.start, scene.end).length > 0
+        const speakerActive = speakerItemsInRange(scene.start, scene.end).length > 0
+        const brollItems = brollItemsInRange(scene.start, scene.end)
+        const sfxItems = sfxItemsInRange(scene.start, scene.end)
+        const ctaItems = ctaItemsInRange(scene.start, scene.end)
+        const hasBroll = brollItems.length > 0
+        const hasSfx = sfxItems.length > 0
+        const hasCta = ctaItems.length > 0
+        const nothingLeftToAdd = hasBroll && hasSfx && hasCta
 
-          {/* Magic Zooms button */}
-          <button
-            onClick={() => runAutoEdit()}
-            disabled={isAutoEditing}
-            className="relative flex items-center gap-1.5 rounded-full bg-dark-panel2 border border-dark-border px-3 py-1.5 text-xs font-bold text-slate-200 shadow-sm hover:bg-dark-panel3 hover:border-primary/50 transition disabled:opacity-40"
-          >
-            <ZoomIn className="h-3.5 w-3.5 text-primary-500" />
-            {isAutoEditing ? 'Planning...' : 'Magic Zooms'}
-            <span className="absolute -top-1 -right-0.5 text-[9px]">⚡</span>
-          </button>
+        const brollMenuOpen = openMenuKey === `${scene.id}:broll`
+        const sfxMenuOpen = openMenuKey === `${scene.id}:sfx`
+        const ctaMenuOpen = openMenuKey === `${scene.id}:cta`
+        const addMenuOpen = openMenuKey === `${scene.id}:add`
 
-          {/* More options button */}
-          <button className="flex h-7 w-7 items-center justify-center rounded-full border border-dark-border bg-dark-panel2 text-slate-400 hover:bg-dark-panel3 hover:text-white transition shadow-sm">
-            <MoreHorizontal className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      </div>
+        return (
+          <div key={scene.id}>
+            <div className="flex flex-col gap-3 rounded-2xl bg-dark-panel2 p-3.5 shadow-md shadow-black/30 border border-dark-border">
+              {/* Header — time range on its own line, sentence text below */}
+              <div className="flex flex-col gap-1">
+                <span className="w-fit rounded-lg bg-dark-panel3 px-1.5 py-0.5 text-[10px] font-mono font-bold text-slate-500">
+                  {scene.start.toFixed(1)}s – {scene.end.toFixed(1)}s
+                </span>
+                <p className="text-xs font-semibold leading-snug text-slate-200">
+                  {scene.text}
+                </p>
+              </div>
 
-      {/* Auto edit error banner */}
-      {autoEditError && (
-        <div className="border-b border-danger/30 bg-red-950/40 px-4 py-2 text-[11px] font-semibold text-danger">
-          {autoEditError}
-        </div>
-      )}
+              {/* Pill row — labeled icon+text chips */}
+              <div className="flex flex-wrap items-center gap-1.5">
+                {/* Zoom — always-on simple toggle, no further config */}
+                <button
+                  type="button"
+                  onClick={() => toggleZoomForScene(scene)}
+                  title={zoomActive ? 'Remove zoom' : 'Add zoom'}
+                  className={`${pillBase} ${zoomActive ? pillActive : pillIdle}`}
+                >
+                  <ZoomIn className="h-3 w-3" />
+                  Zoom
+                </button>
 
-      {/* AI result hook summary card */}
-      {autoEditResult && autoEditResult.hook && (
-        <div className="flex items-start justify-between gap-3 border-b border-dark-border bg-primary/10 px-4 py-3">
-          <p className="text-[11px] font-medium text-slate-200">
-            <span className="font-bold text-primary">Hook Title: </span>
-            {autoEditResult.hook}
-          </p>
-          <button
-            onClick={() => {
-              setCurrentTime(0)
-              addCaption(autoEditResult.hook)
-            }}
-            className="shrink-0 rounded-lg bg-primary px-2.5 py-1 text-[10px] font-bold text-white shadow-purpleGlow hover:bg-primary-hover transition"
-          >
-            Use Hook
-          </button>
-        </div>
-      )}
+                {/* Speaker PiP — always-on simple toggle, mirrors the main
+                    video's own footage in a corner bubble (see models.py) */}
+                <button
+                  type="button"
+                  onClick={() => toggleSpeakerForScene(scene)}
+                  title={speakerActive ? 'Remove speaker widget' : 'Add speaker widget'}
+                  className={`${pillBase} ${speakerActive ? pillActive : pillIdle}`}
+                >
+                  <User className="h-3 w-3" />
+                  Speaker
+                </button>
 
-      {/* Scene list container */}
-      <div className="flex-1 overflow-y-auto">
-        {sceneList.map((scene, idx) => {
-          const broll = brollItemsInRange(scene.start, scene.end)
-          const zoomed = zoomItemsInRange(scene.start, scene.end).length > 0
-          const isActive = activeSceneId === scene.id
-
-          return (
-            <div key={scene.id}>
-              {/* Scene row */}
-              <div
-                className={`flex items-stretch border-b border-dark-border transition-colors cursor-pointer ${
-                  isActive ? 'bg-dark-panel2' : 'bg-dark-panel hover:bg-dark-panel2/60'
-                }`}
-                onClick={() => {
-                  setActiveSceneId(isActive ? null : scene.id)
-                  setCurrentTime(scene.start)
-                }}
-              >
-                {/* Left thumbnail & control column */}
-                <div className="flex flex-col items-center justify-between gap-1.5 border-r border-dark-border px-2 py-3 w-[68px] shrink-0 bg-dark-panel2/40">
-                  {/* Thumbnail / Add B-roll placeholder */}
-                  <div className="relative w-full">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (broll.length) {
-                          setBrollMenuView('menu')
-                          setBrollMenuSceneId((cur) => (cur === scene.id ? null : scene.id))
-                        } else {
-                          openBrollLibraryForScene(scene)
-                        }
-                      }}
-                      className={`flex w-full aspect-square items-center justify-center rounded-xl border transition shadow-sm relative ${
-                        broll.length
-                          ? 'bg-primary/20 border-primary/50 text-primary shadow-purpleGlow'
-                          : 'bg-dark-panel3 border-dark-border text-slate-400 hover:border-primary/40 hover:text-slate-200'
-                      }`}
-                      title={broll.length ? `${broll.length} B-roll attached — click to edit` : 'Add B-roll'}
-                    >
-                      {broll.length ? (
-                        <Film className="h-4 w-4 text-primary" />
-                      ) : (
-                        <Plus className="h-4 w-4" />
-                      )}
-                      {broll.length > 0 && (
-                        <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-primary text-[9px] font-black text-white flex items-center justify-center leading-none shadow-sm">
-                          {broll.length}
-                        </span>
-                      )}
-                    </button>
-
-                    {brollMenuSceneId === scene.id && (
-                      <BrollOptionsMenu
-                        menuRef={brollMenuRef}
-                        view={brollMenuView}
-                        setView={setBrollMenuView}
-                        item={broll[0]}
-                        onAddNew={() => {
-                          setBrollMenuSceneId(null)
-                          openBrollLibraryForScene(scene)
-                        }}
-                        onDelete={() => {
-                          broll.forEach((it) => removeItem(it.id))
-                          setBrollMenuSceneId(null)
-                        }}
-                        onUpdate={(patch) => broll[0] && updateItem(broll[0].id, patch)}
-                        onClose={() => setBrollMenuSceneId(null)}
-                      />
-                    )}
-                  </div>
-
-                  {/* Zoom toggle button */}
+                {/* B-roll — idle chip attaches directly; attached chip opens
+                    Add New/Edit Transition/Delete */}
+                <div className="relative">
                   <button
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      toggleZoomForScene(scene)
-                    }}
-                    className={`flex h-7 w-7 items-center justify-center rounded-xl border transition shadow-sm ${
-                      zoomed
-                        ? 'bg-primary border-primary text-white shadow-purpleGlow'
-                        : 'bg-dark-panel3 border-dark-border text-slate-400 hover:border-primary/40 hover:text-slate-200'
-                    }`}
-                    title={zoomed ? 'Zoom active (click to remove)' : 'Add Zoom'}
+                    type="button"
+                    onClick={() => (hasBroll
+                      ? setOpenMenuKey(brollMenuOpen ? null : `${scene.id}:broll`)
+                      : openBrollLibraryForScene(scene))}
+                    title={hasBroll ? 'B-roll attached' : 'Add b-roll'}
+                    className={`${pillBase} ${hasBroll ? pillActive : pillIdle}`}
                   >
-                    <Repeat2 className="h-3.5 w-3.5" />
+                    <Film className="h-3 w-3" />
+                    B-roll
+                    {hasBroll && <Check className="h-2.5 w-2.5" strokeWidth={4} />}
                   </button>
+                  {brollMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={closeMenus} />
+                      <div className="absolute left-0 top-8 z-50 flex w-44 flex-col overflow-hidden rounded-xl border border-dark-border bg-dark-panel3 shadow-modal">
+                        <button
+                          type="button"
+                          onClick={() => addNewBroll(scene, brollItems)}
+                          className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-dark-panel2 transition text-left"
+                        >
+                          <Plus className="h-3.5 w-3.5 text-primary" />
+                          Add New B-roll
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTransitionItemId(brollItems[0].id)
+                            closeMenus()
+                          }}
+                          className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-dark-panel2 transition text-left border-t border-dark-border"
+                        >
+                          <Wand2 className="h-3.5 w-3.5 text-primary" />
+                          Edit Transition
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteItems(brollItems)}
+                          className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-rose-400 hover:bg-dark-panel2 transition text-left border-t border-dark-border"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete B-roll
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
 
-                {/* Right content column */}
-                <div className="flex flex-1 flex-col justify-center px-4 py-3 min-w-0">
-                  {/* Timestamp range */}
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[11px] font-bold font-mono text-slate-400 tabular-nums">
-                      {scene.start.toFixed(2)} — {scene.end.toFixed(2)}s
-                    </span>
-                    <span className="text-[10px] font-semibold text-slate-500">
-                      #{idx + 1}
-                    </span>
-                  </div>
+                {/* Sound — idle chip attaches directly; attached chip opens
+                    Replace/Delete */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => (hasSfx
+                      ? setOpenMenuKey(sfxMenuOpen ? null : `${scene.id}:sfx`)
+                      : openSfxPickerForScene(scene))}
+                    title={hasSfx ? 'Sound attached' : 'Add sound'}
+                    className={`${pillBase} ${hasSfx ? pillActive : pillIdle}`}
+                  >
+                    <Music className="h-3 w-3" />
+                    Sound
+                    {hasSfx && <Check className="h-2.5 w-2.5" strokeWidth={4} />}
+                  </button>
+                  {sfxMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={closeMenus} />
+                      <div className="absolute left-0 top-8 z-50 flex w-40 flex-col overflow-hidden rounded-xl border border-dark-border bg-dark-panel3 shadow-modal">
+                        <button
+                          type="button"
+                          onClick={() => replaceSfx(scene, sfxItems)}
+                          className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-dark-panel2 transition text-left"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5 text-primary" />
+                          Replace Sound
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteItems(sfxItems)}
+                          className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-rose-400 hover:bg-dark-panel2 transition text-left border-t border-dark-border"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete Sound
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
 
-                  {/* Transcript text snippet */}
-                  <p className="text-xs font-medium leading-relaxed text-slate-200 line-clamp-3">
-                    {scene.text}
-                  </p>
+                {/* CTA — idle chip attaches directly; attached chip opens
+                    Replace/Delete */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => (hasCta
+                      ? setOpenMenuKey(ctaMenuOpen ? null : `${scene.id}:cta`)
+                      : openCtaPickerForScene(scene))}
+                    title={hasCta ? 'CTA attached' : 'Add CTA'}
+                    className={`${pillBase} ${hasCta ? pillActive : pillIdle}`}
+                  >
+                    <MousePointerClick className="h-3 w-3" />
+                    CTA
+                    {hasCta && <Check className="h-2.5 w-2.5" strokeWidth={4} />}
+                  </button>
+                  {ctaMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={closeMenus} />
+                      <div className="absolute left-0 top-8 z-50 flex w-40 flex-col overflow-hidden rounded-xl border border-dark-border bg-dark-panel3 shadow-modal">
+                        <button
+                          type="button"
+                          onClick={() => replaceCta(scene, ctaItems)}
+                          className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-dark-panel2 transition text-left"
+                        >
+                          <RefreshCw className="h-3.5 w-3.5 text-primary" />
+                          Replace CTA
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deleteItems(ctaItems)}
+                          className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-rose-400 hover:bg-dark-panel2 transition text-left border-t border-dark-border"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete CTA
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
 
-                  {/* Active scene inline quick actions */}
-                  {isActive && (
-                    <div className="mt-2.5 flex items-center gap-2">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          openBrollLibraryForScene(scene)
-                        }}
-                        className="flex items-center gap-1.5 rounded-lg border border-dark-border bg-dark-panel3 px-2.5 py-1 text-[11px] font-bold text-slate-300 shadow-sm hover:bg-dark-panel hover:text-white transition"
-                      >
-                        <ImageIcon className="h-3 w-3 text-primary" />
-                        Add Image
-                      </button>
-                      <button
-                        onClick={(e) => e.stopPropagation()}
-                        className="flex items-center gap-1.5 rounded-lg border border-dark-border bg-dark-panel3 px-2.5 py-1 text-[11px] font-bold text-slate-300 shadow-sm hover:bg-dark-panel hover:text-white transition"
-                      >
-                        <Music className="h-3 w-3 text-emerald-400" />
-                        Add Sound
-                      </button>
-                    </div>
+                {/* "+" — catch-all menu for whichever of B-roll/Sound/CTA
+                    isn't attached yet, kept alongside the pills above as a
+                    single quick-add entry point (Zoom & Speaker already
+                    have their own always-on toggles, so they're excluded). */}
+                <div className="relative ml-auto">
+                  <button
+                    type="button"
+                    onClick={() => setOpenMenuKey(addMenuOpen ? null : `${scene.id}:add`)}
+                    title="Add to this scene"
+                    className={`${pillBase} ${pillIdle} !px-2`}
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </button>
+                  {addMenuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={closeMenus} />
+                      <div className="absolute right-0 top-8 z-50 flex w-44 flex-col overflow-hidden rounded-xl border border-dark-border bg-dark-panel3 shadow-modal">
+                        {!hasBroll && (
+                          <>
+                            <div className="px-3 pt-2 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-500">Medias</div>
+                            <button
+                              type="button"
+                              onClick={() => { openBrollLibraryForScene(scene); closeMenus() }}
+                              className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-dark-panel2 transition text-left"
+                            >
+                              <Film className="h-3.5 w-3.5 text-primary" />
+                              B-roll
+                            </button>
+                          </>
+                        )}
+                        {!hasSfx && (
+                          <>
+                            <div className="px-3 pt-2 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-500 border-t border-dark-border">Effects</div>
+                            <button
+                              type="button"
+                              onClick={() => { openSfxPickerForScene(scene); closeMenus() }}
+                              className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-dark-panel2 transition text-left"
+                            >
+                              <Music className="h-3.5 w-3.5 text-primary" />
+                              Sound
+                            </button>
+                          </>
+                        )}
+                        {!hasCta && (
+                          <>
+                            <div className="px-3 pt-2 pb-1 text-[9px] font-extrabold uppercase tracking-wider text-slate-500 border-t border-dark-border">Widget</div>
+                            <button
+                              type="button"
+                              onClick={() => { openCtaPickerForScene(scene); closeMenus() }}
+                              className="flex items-center gap-2 px-3 py-2 text-xs font-bold text-slate-200 hover:bg-dark-panel2 transition text-left"
+                            >
+                              <MousePointerClick className="h-3.5 w-3.5 text-primary" />
+                              CTA
+                            </button>
+                          </>
+                        )}
+                        {nothingLeftToAdd && (
+                          <div className="px-3 py-3 text-center text-[10px] text-slate-500">
+                            Everything's added for this scene
+                          </div>
+                        )}
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
             </div>
-          )
-        })}
 
-        <div className="h-6" />
-      </div>
-    </div>
-  )
-}
-
-// Floating popup shown when clicking an already-attached b-roll indicator.
-// Mirrors the activeOptionMenuId popup convention used elsewhere in the
-// editor (absolute positioning, stopPropagation, fade/zoom-in entrance,
-// dark-panel/dark-border/shadow-2xl styling) — with click-outside-to-close
-// added on top via the parent's mousedown listener.
-function BrollOptionsMenu({ menuRef, view, setView, item, onAddNew, onDelete, onUpdate, onClose }) {
-  return (
-    <div
-      ref={menuRef}
-      onClick={(e) => e.stopPropagation()}
-      className="absolute left-full top-0 ml-2 z-50 w-64 rounded-2xl border border-dark-border bg-dark-panel p-1.5 shadow-2xl shadow-black/60 animate-in fade-in zoom-in-95 duration-150"
-    >
-      {view === 'menu' ? (
-        <div className="flex flex-col gap-0.5">
-          <button
-            onClick={onAddNew}
-            className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-bold text-slate-200 hover:bg-dark-panel3 transition"
-          >
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/20 text-primary">
-              <Plus className="h-3.5 w-3.5" />
-            </span>
-            Add New B-roll
-          </button>
-
-          <button
-            onClick={() => setView('transition')}
-            disabled={!item}
-            className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-bold text-slate-200 hover:bg-dark-panel3 transition disabled:opacity-40 disabled:hover:bg-transparent"
-          >
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-dark-panel3 text-slate-300">
-              <Wand2 className="h-3.5 w-3.5" />
-            </span>
-            <span className="flex-1">Edit Transition</span>
-            <ChevronRight className="h-3.5 w-3.5 text-slate-500" />
-          </button>
-
-          <div className="my-1 h-px bg-dark-border" />
-
-          <button
-            onClick={onDelete}
-            className="flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-bold text-danger hover:bg-red-950/40 transition"
-          >
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-red-950/50 text-danger">
-              <Trash2 className="h-3.5 w-3.5" />
-            </span>
-            Delete B-roll
-          </button>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2.5 p-1">
-          <button
-            onClick={() => setView('menu')}
-            className="flex w-fit items-center gap-1 text-[11px] font-bold text-slate-400 hover:text-slate-200 transition"
-          >
-            <ArrowLeft className="h-3 w-3" />
-            Back
-          </button>
-
-          <div>
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-              Reveal Animation
-            </p>
-            <div className="grid grid-cols-2 gap-1">
-              {REVEAL_ANIMATIONS.map((anim) => (
-                <button
-                  key={anim.id}
-                  onClick={() => onUpdate({ revealAnimation: anim.id })}
-                  className={`flex items-center justify-between gap-1 rounded-lg border px-2 py-1.5 text-[10px] font-bold transition ${
-                    item?.revealAnimation === anim.id
-                      ? 'border-primary/60 bg-primary/20 text-primary'
-                      : 'border-dark-border bg-dark-panel3 text-slate-300 hover:border-primary/30'
-                  }`}
-                >
-                  {anim.label}
-                  {item?.revealAnimation === anim.id && <Check className="h-3 w-3 shrink-0" />}
-                </button>
-              ))}
-            </div>
+            {/* Divider between scenes — a thin line with a small scissors
+                badge standing in for the cut between the two sentences */}
+            {idx < sceneList.length - 1 && (
+              <div className="flex items-center gap-2 py-2 px-1">
+                <div className="h-px flex-1 bg-dark-border" />
+                <div className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-dark-border bg-dark-panel3 text-slate-500">
+                  <Scissors className="h-2.5 w-2.5" />
+                </div>
+                <div className="h-px flex-1 bg-dark-border" />
+              </div>
+            )}
           </div>
+        )
+      })}
 
-          <div>
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-              Screen Layout
-            </p>
-            <div className="grid grid-cols-1 gap-1">
-              {LAYOUTS.map((l) => (
-                <button
-                  key={l.id}
-                  onClick={() => onUpdate({ layout: l.id })}
-                  className={`flex items-center justify-between gap-1 rounded-lg border px-2 py-1.5 text-[10px] font-bold transition ${
-                    item?.layout === l.id
-                      ? 'border-primary/60 bg-primary/20 text-primary'
-                      : 'border-dark-border bg-dark-panel3 text-slate-300 hover:border-primary/30'
-                  }`}
-                >
-                  {l.label}
-                  {item?.layout === l.id && <Check className="h-3 w-3 shrink-0" />}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-slate-500">
-              Reveal Speed (s)
-            </p>
-            <input
-              type="number"
-              min="0.1"
-              max="3"
-              step="0.1"
-              value={item?.revealDuration ?? 0.5}
-              onChange={(e) => onUpdate({ revealDuration: parseFloat(e.target.value) || 0.5 })}
-              className="w-full rounded-lg border border-dark-border bg-dark-panel3 px-2 py-1.5 text-xs font-bold text-slate-200 outline-none focus:border-primary/60"
-            />
-          </div>
-
-          <button
-            onClick={onClose}
-            className="mt-1 rounded-xl bg-primary px-2.5 py-1.5 text-[11px] font-bold text-white shadow-purpleGlow hover:bg-primary-hover transition"
-          >
-            Done
-          </button>
-        </div>
+      {transitionItem && (
+        <RevealAnimationModal
+          value={transitionItem.revealAnimation || 'slide_down'}
+          onChange={(id) => updateItem(transitionItem.id, { revealAnimation: id })}
+          onClose={() => setTransitionItemId(null)}
+        />
       )}
     </div>
   )

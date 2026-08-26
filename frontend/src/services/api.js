@@ -92,4 +92,16 @@ export const api = {
 
   // Milestone 3 — Gemini auto-edit
   runAutoEdit: (projectId) => fetch(`${BASE}/projects/${projectId}/auto-edit`, { method: 'POST' }).then(j),
+
+  // SFX Library — bundled placeholder sounds (see backend/app/sfx/library/
+  // README.txt). No search step needed (the whole catalog is already
+  // bundled), so this is catalog-fetch + attach, same two calls as B-roll
+  // minus the download round-trip.
+  getSfxCatalog: () => fetch(`${BASE}/sfx`).then(j),
+  attachSfx: (projectId, body) =>
+    fetch(`${BASE}/projects/${projectId}/sfx/attach`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(j),
 }

@@ -15,6 +15,8 @@ import {
   Save
 } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
+import RevealAnimationPicker from './animations/RevealAnimationPicker'
+import LayoutPicker from './animations/LayoutPicker'
 
 function formatDuration(sec) {
   if (!sec) return ''
@@ -25,28 +27,6 @@ function formatDuration(sec) {
 
 const TABS = ['AI Generated', 'B-rolls', 'Stock Images']
 const FILTERS = ['Trendy', 'Free', 'Premium', 'My Uploads', 'Saved']
-
-const REVEAL_ANIMATIONS = [
-  { id: 'none', label: 'None' },
-  { id: 'slide_down', label: 'Slide Down' },
-  { id: 'slide_up', label: 'Slide Up' },
-  { id: 'slide_left', label: 'Slide Left' },
-  { id: 'slide_right', label: 'Slide Right' },
-  { id: 'fade_in', label: 'Fade In' },
-  { id: 'zoom_in', label: 'Zoom In' },
-  { id: 'wipe_down', label: 'Wipe Down' },
-  { id: 'bounce_in', label: 'Bounce In' },
-]
-
-// Same three options Sidebar.jsx offers for an already-placed item — kept
-// in sync so "pick it here at attach time" and "change it later on the
-// timeline" behave identically instead of the picker silently locking you
-// into whatever the active template's layout happens to be.
-const LAYOUTS = [
-  { id: 'full', label: 'Full Screen' },
-  { id: 'split_top', label: 'Top Split' },
-  { id: 'split_bottom', label: 'Bottom Split' },
-]
 
 export default function BrollPicker() {
   const {
@@ -336,42 +316,22 @@ export default function BrollPicker() {
                 </div>
               </div>
 
-              {/* Screen Layout Selector */}
+              {/* Screen Layout Selector — same cover-thumbnail + name card
+                  language as the Reveal Animation picker below, instead of
+                  plain text pills, so you can see where the b-roll clip
+                  sits before placing it. */}
               <div className="flex flex-col gap-2 w-full mt-1 text-left">
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Screen Layout</span>
-                <div className="grid grid-cols-3 gap-1.5 bg-dark-panel p-1.5 rounded-2xl border border-dark-border">
-                  {LAYOUTS.map((l) => (
-                    <button
-                      key={l.id}
-                      onClick={() => setSelectedLayout(l.id)}
-                      className={`rounded-xl px-2 py-1.5 text-[10px] font-bold transition-all text-center ${selectedLayout === l.id
-                          ? 'bg-primary text-white shadow-purpleGlow'
-                          : 'text-slate-400 hover:bg-dark-panel2 hover:text-slate-200'
-                        }`}
-                    >
-                      {l.label}
-                    </button>
-                  ))}
-                </div>
+                <LayoutPicker value={selectedLayout} onChange={setSelectedLayout} columns={3} />
               </div>
 
-              {/* Reveal Animation Selector */}
+              {/* Reveal Animation Selector — a live-animated preview card per
+                  style (see animations/RevealAnimationPicker.jsx) instead of
+                  a plain text pill, so you can see what "Pop" vs "Zoom In"
+                  vs "Bounce In" actually looks like before placing the clip. */}
               <div className="flex flex-col gap-2 w-full mt-1 text-left">
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-500">Reveal Animation</span>
-                <div className="grid grid-cols-2 gap-1.5 bg-dark-panel p-1.5 rounded-2xl border border-dark-border">
-                  {REVEAL_ANIMATIONS.map((anim) => (
-                    <button
-                      key={anim.id}
-                      onClick={() => setSelectedAnim(anim.id)}
-                      className={`rounded-xl px-2.5 py-1.5 text-[11px] font-bold transition-all text-center ${selectedAnim === anim.id
-                          ? 'bg-primary text-white shadow-purpleGlow'
-                          : 'text-slate-400 hover:bg-dark-panel2 hover:text-slate-200'
-                        }`}
-                    >
-                      {anim.label}
-                    </button>
-                  ))}
-                </div>
+                <RevealAnimationPicker value={selectedAnim} onChange={setSelectedAnim} columns={3} />
               </div>
 
               {/* Save — commits the selected clip with the layout/animation
