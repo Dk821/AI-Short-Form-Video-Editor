@@ -51,9 +51,13 @@ export const api = {
       body: JSON.stringify({ templateId, regenerateCaptions }),
     }).then(j),
   getTemplateConfig: (projectId) => fetch(`${BASE}/projects/${projectId}/template-config`).then(j),
-  // B-roll Library — search/browse (no download) + attach (downloads the pick)
-  searchBroll: (query, page = 1) =>
-    fetch(`${BASE}/broll/search?${new URLSearchParams({ query: query || '', page })}`).then(j),
+  // B-roll Library — search/browse (no download) + attach (downloads the
+  // pick, or reuses an already-uploaded assetId — see routers/broll.py).
+  // `media` picks which Pexels endpoint the Image Search / Video Search
+  // tabs hit; Upload Local never calls this (it goes straight to
+  // uploadAsset below, then attachBroll with an assetId).
+  searchBroll: (query, { media = 'video', page = 1 } = {}) =>
+    fetch(`${BASE}/broll/search?${new URLSearchParams({ query: query || '', media, page })}`).then(j),
   attachBroll: (projectId, body) =>
     fetch(`${BASE}/projects/${projectId}/broll/attach`, {
       method: 'POST',

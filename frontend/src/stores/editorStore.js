@@ -31,10 +31,14 @@ export const useEditorStore = create((set, get) => ({
   // B-roll Library state
   brollLibraryOpen: false,
   brollTargetRange: null, // { start, duration, label } — where an attached clip will land
+  brollMedia: 'video', // 'video' | 'image' — which Pexels endpoint Image/Video Search hits
   brollResults: [],
   brollQuery: '',
+  brollPage: 1,
+  brollTotalPages: 1,
   isSearchingBroll: false,
   isAttachingBroll: false,
+  isUploadingBrollLocal: false,
   brollError: null,
 
   // Cover Image picker state (VideoPreview.jsx "Cover Image" tab)
@@ -456,24 +460,62 @@ export const useEditorStore = create((set, get) => ({
     set({
       brollLibraryOpen: true,
       brollTargetRange: { start: scene.start, duration: Math.max(scene.end - scene.start, 0.5), label: scene.text.slice(0, 40) },
+      brollMedia: 'video',
       brollResults: [],
       brollQuery: '',
+      brollPage: 1,
+      brollTotalPages: 1,
       brollError: null,
     })
-    get().searchBroll('')
+    get().searchBroll('', { media: 'video' })
   },
   closeBrollLibrary() {
     set({ brollLibraryOpen: false, brollTargetRange: null })
   },
-  async searchBroll(query) {
-    set({ isSearchingBroll: true, brollQuery: query, brollError: null })
+  // `opts.media` switches Image Search <-> Video Search (defaults to the
+  // last-used tab so a plain re-search, e.g. on debounce, doesn't silently
+  // flip tabs); `opts.page` supports the picker's pager. Both are stored
+  // so the picker's UI can reflect what actually came back.
+  async searchBroll(query, opts = {}) {
+    const media = opts.media || get().brollMedia
+    const page = opts.page || 1
+    set({ isSearchingBroll: true, brollQuery: query, brollMedia: media, brollPage: page, brollError: null })
     try {
-      const { results } = await api.searchBroll(query)
-      set({ brollResults: results, isSearchingBroll: false })
+      const { results, totalPages } = await api.searchBroll(query, { media, page })
+      set({ brollResults: results, brollTotalPages: totalPages || 1, isSearchingBroll: false })
     } catch (e) {
-      set({ isSearchingBroll: false, brollError: String(e) })
+      set({ isSearchingBroll: false, brollResults: [], brollError: String(e) })
     }
   },
+  // Upload Local tab: uploads the file immediately (so the picker can show
+  // it as a selectable card right away) via the same generic upload
+  // endpoint the rest of the app uses, and merges it into `assets` so a
+  // live preview thumbnail can resolve — same merge-on-arrival contract as
+  // runAutoEdit's Magic B-roll fix and attachBrollResult below, so this
+  // path can never produce the "asset the frontend never heard about"
+  // blank-layer bug either. Returns the asset (or null on failure) so the
+  // picker can mark it as the current selection.
+  async uploadBrollLocalAsset(file) {
+    const { projectId } = get()
+    set({ isUploadingBrollLocal: true, brollError: null })
+    try {
+      const asset = await api.uploadAsset(projectId, file)
+      set((s) => ({
+        assets: s.assets.some((a) => a.id === asset.id) ? s.assets : [...s.assets, asset],
+        isUploadingBrollLocal: false,
+      }))
+      return asset
+    } catch (e) {
+      set({ isUploadingBrollLocal: false, brollError: String(e) })
+      return null
+    }
+  },
+  // `result` is either a Pexels search card ({ downloadUrl, kind, ... })
+  // or an already-uploaded local asset ({ assetId, kind, ... }, from
+  // uploadBrollLocalAsset above) — attach_broll on the backend accepts
+  // either shape in one call and always returns the fully-resolved
+  // {asset, item, timeline} triple so the frontend never has to guess
+  // whether it needs to sync a new asset in.
   async attachBrollResult(result, opts = {}) {
     const { projectId, brollTargetRange } = get()
     if (!brollTargetRange) return
@@ -481,7 +523,9 @@ export const useEditorStore = create((set, get) => ({
     try {
       const duration = opts?.duration && opts.duration > 0 ? opts.duration : brollTargetRange.duration
       const res = await api.attachBroll(projectId, {
-        downloadUrl: result.downloadUrl,
+        downloadUrl: result.assetId ? undefined : result.downloadUrl,
+        assetId: result.assetId || undefined,
+        mediaType: result.kind || 'video',
         start: brollTargetRange.start,
         duration,
         label: brollTargetRange.label || 'broll',
@@ -491,10 +535,13 @@ export const useEditorStore = create((set, get) => ({
       })
       set((s) => ({
         timeline: res.timeline,
-        assets: [...s.assets, res.asset],
+        assets: res.isNewAsset && !s.assets.some((a) => a.id === res.asset.id)
+          ? [...s.assets, res.asset]
+          : s.assets,
         isAttachingBroll: false,
         brollLibraryOpen: false,
         brollTargetRange: null,
+        brollResults: [],
       }))
     } catch (e) {
       set({ isAttachingBroll: false, brollError: String(e) })
