@@ -19,13 +19,15 @@ point for all of those — each is another chained ffmpeg filter.
 """
 from __future__ import annotations
 
+import functools
 import json
 import os
 import platform
 import shlex
+import shutil
 import subprocess
 import tempfile
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from .models import Timeline, TimelineItem, Asset
 from .overlays import plan_for_item
@@ -96,11 +98,142 @@ def _drift_frac_expr(start: float, dur: float) -> str:
 
 
 def _escape_drawtext(text: str) -> str:
+    """Escape caption text for drawtext's *filter-argument* syntax.
+
+    Deliberately does NOT touch '%'. drawtext has a second, separate layer
+    on top of this \u2014 text expansion, where '%' introduces a '%{...}'
+    directive \u2014 and there is no working escape for a literal percent there:
+    ffmpeg rejects '\\%', a bare '%', and '%%' alike with "Stray % near ...".
+    On ffmpeg 6 that was only a warning, but on 8.x it became a hard
+    filtering error, so a single caption containing a percent sign ("90%")
+    killed the whole export at the exact frame that caption appeared.
+
+    The fix is to disable that expansion layer entirely \u2014 every drawtext
+    built here passes `expansion=none` \u2014 after which '%' (and '{'/'}') are
+    literal and need no escaping at all. Caption text is always literal
+    user/transcript text; nothing here ever wants an expansion directive.
+    The escapes below are the argument-level ones, which still apply.
+    """
     return (
         text.replace("\\", "\\\\")
         .replace(":", "\\:")
         .replace("'", "\u2019")
-        .replace("%", "\\%")
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def _configured_ffmpeg() -> str:
+    """The ffmpeg to use, honouring an explicit FFMPEG_BINARY override.
+
+    Set FFMPEG_BINARY in backend/.env (or the environment) to an absolute
+    path to point the whole renderer at a different ffmpeg build without
+    touching PATH — useful because a crash inside ffmpeg itself is a
+    property of the BUILD, not of the filter graph, so swapping the binary
+    is often the entire fix. Falls back to whatever `ffmpeg` PATH resolves.
+    """
+    override = (os.environ.get("FFMPEG_BINARY") or "").strip().strip('"')
+    if override and os.path.isfile(override):
+        return override
+    return "ffmpeg"
+
+
+@functools.lru_cache(maxsize=1)
+def _ffprobe_exe() -> str:
+    """ffprobe matching _configured_ffmpeg: an explicit FFPROBE_BINARY, else
+    the ffprobe sitting next to an overridden ffmpeg, else PATH."""
+    override = (os.environ.get("FFPROBE_BINARY") or "").strip().strip('"')
+    if override and os.path.isfile(override):
+        return override
+    ffmpeg = _configured_ffmpeg()
+    if os.path.isfile(ffmpeg):
+        sibling = os.path.join(
+            os.path.dirname(ffmpeg),
+            "ffprobe.exe" if ffmpeg.lower().endswith(".exe") else "ffprobe",
+        )
+        if os.path.isfile(sibling):
+            return sibling
+    return "ffprobe"
+
+
+# Filters this renderer cannot build a graph without. Worth checking on any
+# candidate fallback binary, because "has ffmpeg" does not imply "has the
+# filters we need": drawtext gained a hard libharfbuzz dependency in FFmpeg
+# 7.0, so widely-used static builds (imageio-ffmpeg's bundled one among them)
+# ship without it entirely and would turn a crash into a baffling
+# "No such filter: 'drawtext'" instead of a working export.
+_REQUIRED_FILTERS = ("drawtext", "geq", "alphamerge", "overlay")
+
+
+@functools.lru_cache(maxsize=8)
+def _has_required_filters(exe: str) -> bool:
+    try:
+        out = subprocess.run([exe, "-hide_banner", "-filters"], capture_output=True, text=True)
+    except OSError:
+        return False
+    listing = out.stdout or ""
+    return all(f" {name} " in listing for name in _REQUIRED_FILTERS)
+
+
+@functools.lru_cache(maxsize=1)
+def _fallback_ffmpeg() -> Optional[str]:
+    """A second, independently-compiled ffmpeg to retry with when the
+    primary one CRASHES (see _run_ffmpeg's ladder).
+
+    `pip install imageio-ffmpeg` ships a self-contained ffmpeg binary built
+    by a completely different toolchain than the system one. When the
+    system ffmpeg segfaults on a graph that is otherwise valid — which is a
+    build bug, not a graph bug — running the identical command through that
+    second binary is very often all that is needed. Returns None when the
+    package isn't installed or resolves to the same file we already tried.
+    """
+    try:
+        import imageio_ffmpeg  # optional dependency, absent by default
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+    if not exe or not os.path.isfile(exe):
+        return None
+    primary = shutil.which(_configured_ffmpeg()) or _configured_ffmpeg()
+    try:
+        if os.path.samefile(exe, primary):
+            return None
+    except OSError:
+        if os.path.abspath(exe) == os.path.abspath(primary):
+            return None
+    if not _has_required_filters(exe):
+        # Present but unusable — say so once rather than letting it fail the
+        # retry later with an error that looks unrelated to the real problem.
+        print(
+            f"[render] ignoring fallback ffmpeg at {exe}: it is missing one of "
+            f"{', '.join(_REQUIRED_FILTERS)} (drawtext needs a build made with "
+            "libharfbuzz). Point FFMPEG_BINARY at a full build instead."
+        )
+        return None
+    return exe
+
+
+def _luma_mask(src_label: str, out_label: str, w: int, h: int, fps: int, expr: str) -> str:
+    """Build a grayscale mask to feed alphamerge's second input.
+
+    alphamerge takes the alpha it applies from its second input's GRAYSCALE
+    VALUE — not from that input's alpha channel. Encoding the mask shape in
+    `a` while pinning r/g/b to 255 (which this renderer used to do
+    everywhere) produces a uniformly white mask, i.e. "fully opaque
+    everywhere": the mask silently does nothing at all. That is why, in
+    exports, speaker bubbles came out as hard squares instead of circles,
+    split-screen edges had no feathering, and the main video's wipe-in
+    never animated — while the browser preview, which uses real CSS
+    masks, showed all three correctly.
+
+    `expr` is a geq expression in 0..255 over X/Y (and T for time-varying
+    masks). gray is both the correct plane to write and a quarter the work
+    of evaluating four RGBA planes. r={fps} matters for animated masks:
+    `color` defaults to 25fps, and a mask ticking slower than the layer it
+    gates makes the animation visibly step.
+    """
+    return (
+        f"color=c=white:s={w}x{h}:r={fps},format=gray[{src_label}];"
+        f"[{src_label}]geq=lum='{expr}'[{out_label}]"
     )
 
 
@@ -231,6 +364,9 @@ def _build_stress_caption_filters(item, W: int, H: int, current: str, item_idx: 
 
         parts = [
             f"text='{text}'",
+            # Literal text only — see _escape_drawtext for why this is
+            # required rather than optional.
+            "expansion=none",
             f"fontsize={fontsize}",
             f"fontcolor={fontcolor}",
             f"x={cursor_x:.1f}",
@@ -260,7 +396,7 @@ def _build_stress_caption_filters(item, W: int, H: int, current: str, item_idx: 
 def probe_duration(path: str) -> float:
     out = subprocess.run(
         [
-            "ffprobe", "-v", "error", "-show_entries", "format=duration",
+            _ffprobe_exe(), "-v", "error", "-show_entries", "format=duration",
             "-of", "default=noprint_wrappers=1:nokey=1", path,
         ],
         capture_output=True, text=True,
@@ -297,7 +433,7 @@ def _probed_source_duration(path: str, asset: Asset | None) -> float | None:
 def probe_dimensions(path: str) -> tuple[int, int]:
     out = subprocess.run(
         [
-            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            _ffprobe_exe(), "-v", "error", "-select_streams", "v:0",
             "-show_entries", "stream=width,height",
             "-of", "csv=s=x:p=0", path,
         ],
@@ -446,10 +582,7 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
                     f"if(lt(Y,({edge})-{feather}),0,"
                     f"if(lt(Y,{edge}),255*(Y-(({edge})-{feather}))/{feather},255))"
                 )
-            filters.append(
-                f"color=c=white:s={W}x{half_h},format=rgba[mwipe{i}src];"
-                f"[mwipe{i}src]geq=r='255':g='255':b='255':a='{a_expr}'[mwipe{i}]"
-            )
+            filters.append(_luma_mask(f"mwipe{i}src", f"mwipe{i}", W, half_h, fps, a_expr))
             filters.append(f"[{raw}][mwipe{i}]alphamerge=shortest=1[mainhalfwiped{i}]")
             label = f"mainhalfwiped{i}"
             y_expr = f"{main_rest_y}"
@@ -622,10 +755,7 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
                     f"if(gt(X,{inner})*gt(Y,{inner}),if(lte(pow(X-{inner},2)+pow(Y-{inner},2),pow({rad},2)),255,0),"
                     f"255))))"
                 )
-            filters.append(
-                f"color=c=white:s={size}x{size},format=rgba[spkmsrc{i}];"
-                f"[spkmsrc{i}]geq=r='255':g='255':b='255':a='{a_expr}'[spkmask{i}]"
-            )
+            filters.append(_luma_mask(f"spkmsrc{i}", f"spkmask{i}", size, size, fps, a_expr))
             filters.append(f"[{raw_label}][spkmask{i}]alphamerge=shortest=1[spk{i}]")
 
             rest_x = int(item.transform.x)
@@ -643,45 +773,68 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
 
             raw_label = f"broll{i}raw"
 
+            # EVERY branch below must emit a layer of CONSTANT W x target_h.
+            # ffmpeg reinitializes its filter chain whenever a frame's SIZE
+            # changes mid-stream, and the downstream filters here (pad,
+            # alphamerge, overlay) do not survive that: it produced either
+            # "Error reinitializing filters!" or an outright SIGSEGV/SIGABRT
+            # on every ffmpeg version tested (6.1 and 8.x alike). So a reveal
+            # that "grows" or "wipes" the layer is done by padding back onto a
+            # fixed-size canvas, or by animating ALPHA — never by letting the
+            # frame dimensions themselves vary over time.
+            base_chain = (
+                f"[{video_in}]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
+                f"crop={W}:{target_h},fps={fps},format=rgba,"
+                f"colorchannelmixer=aa={item.opacity}"
+            )
+
             if anim == "fade_in":
-                filters.append(
-                    f"[{video_in}]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
-                    f"crop={W}:{target_h},fps={fps},format=rgba,"
-                    f"colorchannelmixer=aa={item.opacity},"
-                    f"fade=t=in:st={item.start}:d={dur}:alpha=1[{raw_label}]"
-                )
+                filters.append(f"{base_chain},fade=t=in:st={item.start}:d={dur}:alpha=1[{raw_label}]")
             elif anim in ("zoom_in", "pop"):
+                # trunc(), not int(): ffmpeg's expression evaluator has no
+                # int() function at all, so an int() here is rejected as
+                # "Unknown function" and fails the whole graph at init.
+                # The pad MUST carry eval=frame: its output size is fixed,
+                # but its x/y centering expressions read the (shrinking)
+                # input size, and a pad still evaluating an init-time size
+                # against a resized frame segfaults ffmpeg outright.
                 filters.append(
-                    f"[{video_in}]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
-                    f"crop={W}:{target_h},fps={fps},format=rgba,"
-                    f"scale=w='max(16,int({W}*max(0.05,{p_expr})))':h='max(16,int({target_h}*max(0.05,{p_expr})))':eval=frame,"
-                    f"pad={W}:{target_h}:'({W}-iw)/2':'({target_h}-ih)/2':color=black@0,"
-                    f"colorchannelmixer=aa={item.opacity}[{raw_label}]"
-                )
-            elif anim == "wipe_down":
-                filters.append(
-                    f"[{video_in}]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
-                    f"crop=w={W}:h='max(1,int({target_h}*{p_expr}))':x=0:y=0:exact=1,fps={fps},format=rgba,"
-                    f"colorchannelmixer=aa={item.opacity}[{raw_label}]"
+                    f"{base_chain},"
+                    f"scale=w='max(16,trunc({W}*max(0.05,{p_expr})))':h='max(16,trunc({target_h}*max(0.05,{p_expr})))':eval=frame,"
+                    f"pad={W}:{target_h}:'({W}-iw)/2':'({target_h}-ih)/2':color=black@0:eval=frame[{raw_label}]"
                 )
             else:
-                filters.append(
-                    f"[{video_in}]scale={W}:{target_h}:force_original_aspect_ratio=increase,"
-                    f"crop={W}:{target_h},fps={fps},format=rgba,"
-                    f"colorchannelmixer=aa={item.opacity}[{raw_label}]"
-                )
+                filters.append(f"{base_chain}[{raw_label}]")
 
+            # Alpha masks — the constant-size way to express both the
+            # wipe_down reveal and the split-screen feathered edge. geq's
+            # time variable is uppercase T (t is the drawtext/overlay one),
+            # and its per-pixel row is Y.
+            p_expr_t = f"min(max((T-{item.start})/{dur},0),1)"
+            mask_terms = []
+            if anim == "wipe_down":
+                # Reveal top-down: opaque above the advancing line, clear below.
+                mask_terms.append(f"if(lt(Y,{target_h}*{p_expr_t}),255,0)")
             if layout in ("split_top", "split_bottom"):
                 feather_px = max(1, int(target_h * 0.15))
-                a_expr = (
+                mask_terms.append(
                     f"if(lt(Y,{feather_px}),255*(Y/{feather_px}),255)"
                     if layout == "split_bottom"
                     else f"if(gt(Y,{target_h - feather_px}),255*(1-(Y-({target_h - feather_px}))/{feather_px}),255)"
                 )
-                filters.append(
-                    f"color=c=white:s={W}x{target_h},format=rgba[fmask{i}src];"
-                    f"[fmask{i}src]geq=r='255':g='255':b='255':a='{a_expr}'[fmask{i}]"
-                )
+
+            if mask_terms:
+                # Two masks compose multiplicatively (both are 0..255, so
+                # divide once to stay in range) — a wipe_down b-roll in a
+                # split layout needs the moving wipe AND the feathered edge,
+                # not whichever one happened to be applied last.
+                a_expr = mask_terms[0] if len(mask_terms) == 1 else f"({mask_terms[0]})*({mask_terms[1]})/255"
+                if item.opacity is not None and item.opacity != 1:
+                    # alphamerge REPLACES the layer's alpha, so the opacity
+                    # applied in base_chain is discarded here — fold it into
+                    # the mask instead of silently losing it.
+                    a_expr = f"({a_expr})*{item.opacity}"
+                filters.append(_luma_mask(f"fmask{i}src", f"fmask{i}", W, target_h, fps, a_expr))
                 filters.append(f"[{raw_label}][fmask{i}]alphamerge=shortest=1[{label_scaled}]")
             else:
                 label_scaled = raw_label
@@ -785,6 +938,9 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
 
         parts = [
             f"text='{text}'",
+            # Literal text only — see _escape_drawtext for why this is
+            # required rather than optional.
+            "expansion=none",
             f"fontsize={item.fontSize}",
             f"fontcolor={item.color}",
             f"x=(w-text_w)/2",
@@ -830,6 +986,9 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
 
         parts = [
             f"text='{text}'",
+            # Literal text only — see _escape_drawtext for why this is
+            # required rather than optional.
+            "expansion=none",
             f"fontsize={item.fontSize or 42}",
             f"fontcolor={item.color or '#FFFFFF'}",
             "x=(w-text_w)/2",
@@ -898,24 +1057,162 @@ def _fontconfig_env() -> dict:
     return {"FONTCONFIG_FILE": _fontconfig_conf_path}
 
 
+@functools.lru_cache(maxsize=4)
+def _filter_graph_file_option(exe: str = "ffmpeg") -> str:
+    """Which option this ffmpeg build uses to read a filter graph from a file.
+
+    ffmpeg 7.0 introduced the generic "read this option's value from a file"
+    form, `-/filter_complex FILE`, and deprecated the old
+    `-filter_complex_script FILE`. ffmpeg 8.x still accepts the old spelling
+    but prints a deprecation notice; builds newer than that have REMOVED it
+    outright ("Unrecognized option 'filter_complex_script'"), which fails the
+    export before a single frame is decoded.
+
+    Rather than parse a version string (builds label themselves
+    inconsistently — "8.1.1-full_build", "N-126308-g...", distro forks), probe
+    once with a throwaway one-frame render and cache the answer for the
+    process. Prefers the modern spelling, falls back to the legacy one.
+
+    Cached PER BINARY: the crash fallback may run a different (often older)
+    ffmpeg build that only understands the legacy spelling, so the answer
+    for one binary must never be reused for another.
+    """
+    with tempfile.NamedTemporaryFile("w", suffix=".ffscript", delete=False, encoding="utf-8") as f:
+        f.write("[0:v]null[probeout]")
+        probe_path = f.name
+    try:
+        for option in ("-/filter_complex", "-filter_complex_script"):
+            try:
+                proc = subprocess.run(
+                    [exe, "-hide_banner", "-loglevel", "error", "-f", "lavfi",
+                     "-i", "color=c=black:s=16x16:d=0.1", option, probe_path,
+                     "-map", "[probeout]", "-frames:v", "1", "-f", "null", "-"],
+                    capture_output=True, text=True,
+                )
+            except OSError:
+                break  # ffmpeg missing entirely — let the real render report it
+            if proc.returncode == 0:
+                return option
+    finally:
+        try:
+            os.remove(probe_path)
+        except OSError:
+            pass
+    # Neither probe succeeded (unusual — e.g. lavfi unavailable). Use the
+    # modern spelling: every ffmpeg that still supports the legacy one also
+    # supports this, and only the legacy one is at risk of being removed.
+    return "-/filter_complex"
+
+
+# Windows NTSTATUS values ffmpeg can die with. A process killed this way is
+# gone before the C runtime flushes stderr, so the log usually stops mid-way
+# (often after nothing but the version banner) and the exit code is the only
+# real evidence left — worth translating rather than showing as a bare number.
+_WINDOWS_CRASH_CODES = {
+    3221225477: "0xC0000005 ACCESS_VIOLATION — ffmpeg crashed (segfault equivalent)",
+    3221225725: "0xC00000FD STACK_OVERFLOW — ffmpeg crashed on a too-deeply-nested expression",
+    3221226505: "0xC0000409 STACK_BUFFER_OVERRUN — ffmpeg aborted on a corrupted stack",
+    3221225620: "0xC0000094 INTEGER_DIVIDE_BY_ZERO — ffmpeg crashed",
+}
+
+
+# Retry arguments for a build whose threading is what's crashing. These are
+# global options, so they go immediately after the executable name, before
+# any input. -filter_threads disables filter slice-threading (geq, scale,
+# overlay and drawtext all use it); -threads 1 does the same for the codecs.
+# Slower, but a slow export beats a crashed one. The gyan.dev Windows builds
+# are compiled --disable-w32threads, i.e. they use winpthreads rather than
+# native Win32 threads, which is the configuration where filter threading
+# crashes have historically shown up.
+_SINGLE_THREAD_ARGS = ["-filter_threads", "1", "-threads", "1"]
+
+
+def _exit_code_note(code: int, stderr: str) -> str:
+    """One human-readable line explaining a non-zero ffmpeg exit, when the
+    code itself carries more information than the (possibly truncated or
+    entirely absent) stderr does."""
+    if code in _WINDOWS_CRASH_CODES:
+        note = f"\n[{_WINDOWS_CRASH_CODES[code]}]"
+        if len(stderr.strip()) < 2500 or "Error" not in stderr:
+            note += (
+                "\nffmpeg died before it could report why, so the log above is"
+                " incomplete. It was already retried with all threading"
+                " disabled"
+                + ("" if _fallback_ffmpeg() else
+                   ", and no alternative ffmpeg build is installed to retry with"
+                   " (`pip install imageio-ffmpeg` adds one)")
+                + ". Run `python diagnose_export.py` from the backend folder to"
+                " find which part of the render is responsible."
+            )
+        return note
+    if code < 0:
+        return f"\n[killed by signal {-code}]"
+    return ""
+
+
 def _run_ffmpeg(cmd_prefix: List[str], filter_complex: str, cmd_suffix: List[str], error_prefix: str) -> None:
-    """Runs ffmpeg with the filter graph passed via -filter_complex_script
-    (a temp file) instead of inline on the command line. A timeline with
-    several split-screen/broll/caption items easily produces a filter graph
-    tens of thousands of characters long; passed inline that pushed the
-    full assembled command past Windows' CreateProcess command-line limit,
-    which surfaced not as an ffmpeg error but as the opaque Python
-    `[WinError 206] The filename or extension is too long` — failing the
-    export before ffmpeg even ran. A script file has no such limit."""
+    """Runs ffmpeg with the filter graph passed in a temp file instead of
+    inline on the command line. A timeline with several split-screen/broll/
+    caption items easily produces a filter graph tens of thousands of
+    characters long; passed inline that pushed the full assembled command
+    past Windows' CreateProcess command-line limit, which surfaced not as an
+    ffmpeg error but as the opaque Python `[WinError 206] The filename or
+    extension is too long` — failing the export before ffmpeg even ran. A
+    graph file has no such limit. See _filter_graph_file_option for which
+    spelling of that option this ffmpeg build wants."""
     with tempfile.NamedTemporaryFile("w", suffix=".ffscript", delete=False, encoding="utf-8") as f:
         f.write(filter_complex)
         script_path = f.name
     try:
-        cmd = [*cmd_prefix, "-filter_complex_script", script_path, *cmd_suffix]
         env = {**os.environ, **_fontconfig_env()}
-        proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
-        if proc.returncode != 0:
-            raise RuntimeError(f"{error_prefix}:\n{' '.join(shlex.quote(c) for c in cmd)}\n\n{proc.stderr[-4000:]}")
+        primary = _configured_ffmpeg()
+
+        # Attempt 1 is the normal, fully-threaded command. If ffmpeg *crashes*
+        # (as opposed to reporting an error), the later attempts re-run the
+        # identical graph in ways that route around the two things a crash in
+        # otherwise-valid ffmpeg is usually caused by: that build's threading,
+        # then that build entirely. A crash is a property of the binary, not
+        # of the graph, so a second independently-compiled ffmpeg often just
+        # works. Each attempt only runs if the previous one CRASHED.
+        attempts = [
+            (primary, [], "default"),
+            (primary, _SINGLE_THREAD_ARGS, "single-threaded"),
+        ]
+        fallback = _fallback_ffmpeg()
+        if fallback:
+            attempts.append((fallback, [], "with the bundled imageio-ffmpeg build"))
+
+        last = None
+        for exe, extra, label in attempts:
+            cmd = [exe, *extra, *cmd_prefix[1:],
+                   _filter_graph_file_option(exe), script_path, *cmd_suffix]
+            proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+            if proc.returncode == 0:
+                if label != "default":
+                    print(
+                        f"[render] ffmpeg crashed on the default settings but succeeded "
+                        f"{label}. That points at the ffmpeg build rather than this "
+                        f"project's filter graph; the fallback will keep being used."
+                    )
+                return
+            last = (cmd, proc)
+            if proc.returncode not in _WINDOWS_CRASH_CODES and proc.returncode >= 0:
+                break  # a real, reported error — retrying changes nothing
+
+        cmd, proc = last
+        # Include the exit code and BOTH ends of stderr. ffmpeg puts its
+        # version banner (~2KB of ./configure flags) at the top and the
+        # actual error at the bottom, so a naive tail-only slice can be
+        # entirely banner and report nothing useful about the failure —
+        # which is exactly what made a real export failure undiagnosable.
+        stderr = proc.stderr or ""
+        if len(stderr) > 6000:
+            stderr = f"{stderr[:1500]}\n...[{len(stderr) - 5500} chars omitted]...\n{stderr[-4000:]}"
+        note = _exit_code_note(proc.returncode, stderr)
+        raise RuntimeError(
+            f"{error_prefix} (ffmpeg exited with code {proc.returncode}):\n"
+            f"{' '.join(shlex.quote(c) for c in cmd)}\n{note}\n{stderr}"
+        )
     finally:
         try:
             os.remove(script_path)

@@ -32,7 +32,12 @@ def _extract_audio(source_path: str, out_wav: str) -> None:
     explicitly (rather than uploading the raw container) keeps decoding
     reliable across whatever codecs users upload, shrinks the upload so it
     fits Groq's request size limit, and avoids 415s on odd formats."""
-    cmd = ["ffmpeg", "-y", "-i", source_path, "-ac", "1", "-ar", "16000", "-vn", out_wav]
+    # Same binary the renderer uses, so an FFMPEG_BINARY override (see
+    # render._configured_ffmpeg) covers every ffmpeg call in the app rather
+    # than leaving transcription pointed at a different build.
+    from .render import _configured_ffmpeg
+
+    cmd = [_configured_ffmpeg(), "-y", "-i", source_path, "-ac", "1", "-ar", "16000", "-vn", out_wav]
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(f"ffmpeg audio extraction failed:\n{proc.stderr[-2000:]}")

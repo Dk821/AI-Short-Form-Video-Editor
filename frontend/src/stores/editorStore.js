@@ -19,6 +19,8 @@ export const useEditorStore = create((set, get) => ({
   exportFormat: 'mp4', // 'mp4' | 'webm' | 'gif' — the export panel's 3 format options
   exportQuality: 'standard', // 'draft' | 'standard' | 'high'
   exportFrameRate: null, // null = match the project's own fps; otherwise 24 | 30 | 60
+  isSavingProject: false, // Toolbar's explicit "Save" button — see saveProject()
+  saveError: null,
   status: 'idle', // idle | loading | ready | error
   error: null,
 
@@ -586,6 +588,24 @@ export const useEditorStore = create((set, get) => ({
     const { projectId, timeline } = get()
     if (!projectId || !timeline) return
     await api.saveTimeline(projectId, timeline)
+  },
+
+  // Toolbar's explicit "Save" button — was previously wired to
+  // setPlaying(!isPlaying) (a copy-paste leftover from a play/pause
+  // control), so clicking "Save" silently toggled playback and never
+  // persisted anything. This actually calls persist(), with a busy flag
+  // so Toolbar.jsx can show a spinner and the button can't be double-fired
+  // while a save is already in flight — same guard shape as isAutoEditing.
+  async saveProject() {
+    if (get().isSavingProject) return
+    set({ isSavingProject: true, saveError: null })
+    try {
+      await get().persist()
+    } catch (e) {
+      set({ saveError: String(e) })
+    } finally {
+      set({ isSavingProject: false })
+    }
   },
 
   async uploadFile(file, targetTrackType) {

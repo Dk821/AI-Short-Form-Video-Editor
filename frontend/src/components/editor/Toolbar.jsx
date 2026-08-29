@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Home,
@@ -7,6 +8,7 @@ import {
   Undo2,
   Redo2,
   Save,
+  Check,
   Download,
   Loader2,
   Sparkles
@@ -14,7 +16,18 @@ import {
 import { useEditorStore } from '../../stores/editorStore'
 
 export default function Toolbar({ activeTab, onTabChange }) {
-  const { project, isPlaying, setPlaying, openExportPanel, exportJob } = useEditorStore()
+  const { project, openExportPanel, exportJob, saveProject, isSavingProject } = useEditorStore()
+  // Brief "Saved" confirmation flash after a successful save — separate
+  // from isSavingProject (the in-flight state) so the button can show
+  // three distinct states: idle, saving, just-saved.
+  const [justSaved, setJustSaved] = useState(false)
+
+  async function handleSave() {
+    if (isSavingProject) return
+    await saveProject()
+    setJustSaved(true)
+    setTimeout(() => setJustSaved(false), 1800)
+  }
 
   const jobStatus = exportJob?.status
   const label =
@@ -98,12 +111,19 @@ export default function Toolbar({ activeTab, onTabChange }) {
         <div className="mx-1 h-4 w-px bg-slate-800" />
 
         <button
-          onClick={() => setPlaying(!isPlaying)}
-          className="flex items-center gap-1.5 rounded-xl bg-dark-panel px-3.5 py-1.5 text-xs font-bold text-slate-200 shadow-md hover:bg-dark-panel2 hover:text-white transition"
+          onClick={handleSave}
+          disabled={isSavingProject}
+          className="flex items-center gap-1.5 rounded-xl bg-dark-panel px-3.5 py-1.5 text-xs font-bold text-slate-200 shadow-md hover:bg-dark-panel2 hover:text-white transition disabled:opacity-60"
           title="Save project"
         >
-          <Save className="h-3.5 w-3.5" />
-          Save
+          {isSavingProject ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : justSaved ? (
+            <Check className="h-3.5 w-3.5 text-emerald-400" />
+          ) : (
+            <Save className="h-3.5 w-3.5" />
+          )}
+          {isSavingProject ? 'Saving...' : justSaved ? 'Saved' : 'Save'}
         </button>
 
         <button
