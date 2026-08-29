@@ -98,6 +98,47 @@ class TimelineItem(BaseModel):
     # off, instead of wiping out anything the user placed by hand.
     source: Optional[Literal["auto_edit"]] = None
 
+    # When true, the renderer and the live preview both skip this item
+    # entirely — used to disable/enable content WITHOUT deleting it (so
+    # turning it back on instantly restores exactly what was there, no
+    # re-generation needed). Currently used for the "AI Subtitles &
+    # Captions" boost toggle (Sidebar.jsx sets this on every caption item
+    # at once) and the per-line "Hide subtitle" eye button (sets it on a
+    # single caption item). None/False = visible (the default — every
+    # pre-existing item behaves exactly as before this field existed).
+    hidden: Optional[bool] = None
+
+    # "AI Stress Text Highlighter" (caption-only). `stressWordIndices` is
+    # per-item — indices into `text.split(' ')` for THIS line, computed by
+    # stress_words.detect_stress_word_indices() and cleared (set back to
+    # None) when the feature is turned off. The style fields below are
+    # global by convention rather than per-line: Sidebar.jsx writes the
+    # same value onto every caption item at once (see updateAllCaptions —
+    # the exact pattern already used for the base caption style: color,
+    # fontFamily, etc.), so any one item's stress* fields represent the
+    # single shared highlight style. A None style field means "use the
+    # matching base caption field instead" (e.g. stressColor falls back to
+    # color) — see render.py's caption loop and VideoPreview.jsx.
+    stressWordIndices: Optional[List[int]] = None
+    stressColor: Optional[str] = None
+    stressBackgroundColor: Optional[str] = None   # None = no background/pill
+    stressStrokeEnabled: Optional[bool] = None
+    stressStrokeColor: Optional[str] = None
+    stressStrokeWidth: Optional[int] = None
+    stressFontFamily: Optional[str] = None
+    stressFontSize: Optional[int] = None
+    stressFontWeight: Optional[int] = None
+    stressFontStyle: Optional[Literal["normal", "italic"]] = None
+    stressPadding: Optional[int] = None
+    stressCornerRadius: Optional[int] = None       # live-preview only — ffmpeg's
+                                                    # drawtext box has no rounded-
+                                                    # corner option, see render.py
+    stressAnimation: Optional[Literal["none", "pop", "pulse", "underline", "glow"]] = None
+    # ^ live-preview only (CSS keyframes) — export renders the highlight
+    # statically. Animating an ffmpeg drawtext box per detected word is a
+    # much larger filtergraph undertaking than this feature's scope; this
+    # is a deliberate, documented gap rather than a silent one.
+
 
 class Track(BaseModel):
     id: str

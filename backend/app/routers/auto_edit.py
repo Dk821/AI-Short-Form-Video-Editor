@@ -56,6 +56,7 @@ def auto_edit(project_id: str, mode: Optional[Literal["zoom", "broll"]] = None):
     # download leaves the item as a keyword-only suggestion (the renderer
     # skips those), so a Pexels hiccup never fails the whole auto-edit.
     broll_assets: dict[str, str] = {}
+    new_assets: list[dict] = []
     for m in decisions.moments:
         if m.type != "broll_suggestion" or not (m.keyword and m.keyword.strip()):
             continue
@@ -65,6 +66,7 @@ def auto_edit(project_id: str, mode: Optional[Literal["zoom", "broll"]] = None):
         if asset:
             broll_assets[m.keyword] = asset["id"]
             project["assets"].append(asset)
+            new_assets.append(asset)
 
     # Pass the active template so the engine can apply the correct
     # broll layout/scale/reveal and zoom scale range (template decides HOW).
@@ -81,4 +83,13 @@ def auto_edit(project_id: str, mode: Optional[Literal["zoom", "broll"]] = None):
         "decisions": decisions.model_dump(),
         "timeline": project["timeline"],
         "brollDownloaded": len(broll_assets),
+        # Newly-downloaded Pexels assets — persisted server-side above, but
+        # the frontend's `assets` store state is a separate in-memory copy
+        # that only ever grows via explicit merges (see attachBrollResult
+        # in editorStore.js for the manual-attach equivalent of this same
+        # merge). Without returning these, the broll TimelineItem this
+        # request just created points at an assetId the frontend has never
+        # heard of, so `assets.find(a => a.id === item.assetId)` comes back
+        # undefined and the b-roll layer silently renders as nothing.
+        "assets": new_assets,
     }

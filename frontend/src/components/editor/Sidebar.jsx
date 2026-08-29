@@ -31,20 +31,22 @@ import { useEditorStore } from '../../stores/editorStore'
 import Scenes from './Scenes'
 import RevealAnimationModal from './animations/RevealAnimationModal'
 import { REVEAL_ANIMATIONS } from './animations/RevealAnimationPicker'
+import StressHighlightModal from './animations/StressHighlightModal'
 
-function Toggle({ active, onToggle }) {
+function Toggle({ active, onToggle, disabled }) {
   return (
     <button
-      onClick={onToggle}
-      className={`toggle-switch ${active ? 'active' : ''}`}
-      title={active ? 'Enabled' : 'Disabled'}
+      onClick={disabled ? undefined : onToggle}
+      disabled={disabled}
+      className={`toggle-switch ${active ? 'active' : ''} ${disabled ? 'opacity-40 cursor-not-allowed' : ''}`}
+      title={disabled ? 'Working…' : active ? 'Enabled' : 'Disabled'}
     />
   )
 }
 
-function BoostCard({ icon: Icon, iconBg, title, description, active, onToggle, actions }) {
+function BoostCard({ icon: Icon, iconBg, title, description, active, onToggle, actions, disabled }) {
   return (
-    <div className="flex items-center justify-between p-3.5 rounded-2xl bg-dark-panel2 shadow-md shadow-black/40 hover:shadow-lg hover:shadow-black/60 transition-all">
+    <div className={`flex items-center justify-between p-3.5 rounded-2xl bg-dark-panel2 shadow-md shadow-black/40 hover:shadow-lg hover:shadow-black/60 transition-all ${disabled ? 'opacity-70' : ''}`}>
       <div className="flex items-center gap-3 min-w-0 flex-1 pr-2">
         <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-white shadow-sm ${iconBg || 'bg-dark-panel3'}`}>
           <Icon className="h-4 w-4 stroke-[2.2]" />
@@ -65,7 +67,7 @@ function BoostCard({ icon: Icon, iconBg, title, description, active, onToggle, a
             {a.label}
           </button>
         ))}
-        <Toggle active={active} onToggle={onToggle} />
+        <Toggle active={active} onToggle={onToggle} disabled={disabled} />
       </div>
     </div>
   )
@@ -157,11 +159,18 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
     selectedItemId,
     setCurrentTime,
     runAutoEdit,
+    isAutoEditing,
     autoEditResult,
     splitCaptionItem,
     mergeCaptionPair,
     removeAutoEditItems,
+    setAllCaptionsHidden,
+    enableAiCaptions,
+    setStressHighlightEnabled,
+    isSettingStressHighlight,
   } = useEditorStore()
+
+  const [stressModalOpen, setStressModalOpen] = useState(false)
 
   const currentTemplate = useEditorStore((s) => (typeof s?.currentTemplate === 'function' ? s.currentTemplate() : null))
 
@@ -191,21 +200,17 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
 
   // Feature Toggles
   const [boostState, setBoostState] = useState({
-    captions: true,
+    // "captions", "zooms" and "broll" used to live here as cosmetic-only
+    // flags, disconnected from whether the timeline actually had any
+    // AI-added content — a project could show a toggle "on" with zero
+    // matching items, or "off" with items still sitting on the timeline.
+    // All three now derive their on/off display straight from real
+    // timeline data instead (see captionsEnabled/zoomsEnabled/
+    // brollEnabled below), and their onToggle handlers act on that same
+    // real state, so what a switch is doing to the project is exactly
+    // what a switch is currently doing to the project.
     silences: true,
-    zooms: true,
-    // Off by default, like every toggle below it — it used to start ON
-    // even on a template-less project where nothing has actually been
-    // auto-added yet, which misrepresented the timeline as already having
-    // AI b-roll on it. The sync effect right below still turns this ON
-    // when an applied template's own broll config says enabled (its
-    // default is true — see templates/schema.py's BrollStyle), so a
-    // template-based "AI Auto Edit" project — which already ran the auto
-    // b-roll pass before the editor even opened — still shows correctly.
-    broll: false,
-    hookTitle: false,
     cleanAudio: false,
-    badTakes: false,
     eyeContact: false,
   })
 
@@ -225,35 +230,70 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
     }
     if (cap.wordsPerCaption) setDisplayWords(cap.wordsPerCaption)
     if (cap.animation) setAnimation(cap.animation !== 'none')
-
-    setBoostState((s) => ({
-      ...s,
-      zooms: currentTemplate.zoom?.enabled ?? s.zooms,
-      broll: currentTemplate.broll?.enabled ?? s.broll,
-    }))
+    // zooms/broll used to be force-set here from the template's config
+    // flag — but applying a template never actually adds zoom/b-roll
+    // items by itself (see routers/templates.py's apply_template — it
+    // only stores brollStyle/zoomStyle preferences), so this was setting
+    // the switch "on" before anything AI-added existed to back it up.
+    // zoomsEnabled/brollEnabled below read real timeline content instead,
+    // which is also what apply_edit_decisions actually tags (source:
+    // "auto_edit") once a real auto-edit pass runs — from the "AI Auto
+    // Edit" project-creation flow or either boost toggle right below.
   }, [currentTemplate?.id])
 
   // Hidden caption items set & active options popup menu
-  const [hiddenItems, setHiddenItems] = useState(new Set())
   const [editingItemId, setEditingItemId] = useState(null)
   const [activeOptionMenuId, setActiveOptionMenuId] = useState(null)
   const [selectedWordInfo, setSelectedWordInfo] = useState(null)
 
   const toggleBoost = (key) => setBoostState((s) => ({ ...s, [key]: !s[key] }))
-  const toggleHideItem = (id) => {
-    setHiddenItems((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
+  // Persisted per-line hide (models.py's `hidden`) — real, not just a
+  // dimmed-in-the-sidebar illusion: render.py and VideoPreview.jsx both
+  // skip a hidden caption item entirely.
+  const toggleHideItem = (item) => updateItem(item.id, { hidden: !item.hidden })
 
   const hasMainVideo = !!mainAsset()
   const hasTranscript = !!transcript?.words?.length
 
   const captionTrack = timeline?.tracks?.find((t) => t.type === 'caption')
   const captionItems = captionTrack?.items || []
+  // Real, timeline-derived state for the "AI Subtitles & Captions" boost
+  // toggle — true once captions exist AND at least one line isn't hidden
+  // (matches how "AI Auto B-rolls"/"AI Auto Zooms" derive their own
+  // on/off state from actual track contents rather than a local flag).
+  const captionsEnabled = captionItems.length > 0 && captionItems.some((it) => !it.hidden)
+
+  // Same idea for "AI Auto Zooms"/"AI Auto B-rolls" — on only when the
+  // matching track actually has AI-added content (source: "auto_edit"),
+  // never a locally-tracked flag that can drift from what's really there.
+  // A manually-placed zoom (a scene's Zoom toggle) or manually-attached
+  // b-roll clip has no `source` tag, so it never makes these read "on".
+  const zoomItems = timeline?.tracks?.find((t) => t.type === 'zoom')?.items || []
+  const brollItems = timeline?.tracks?.find((t) => t.type === 'broll')?.items || []
+  const zoomsEnabled = zoomItems.some((it) => it.source === 'auto_edit')
+  const brollEnabled = brollItems.some((it) => it.source === 'auto_edit')
+
+  // "AI Stress Text Highlighter" — same real-data-derived pattern as the
+  // three above: on only once at least one caption line actually has
+  // detected stress words, never a locally-tracked flag. The style
+  // fields are bulk-shared across every caption item (see
+  // updateAllCaptions below and models.py's stress* fields), so the
+  // first item's values represent the one shared style the modal edits.
+  const stressHighlightEnabled = captionItems.some((it) => it.stressWordIndices?.length > 0)
+  const stressStyleValue = {
+    stressColor: captionItems[0]?.stressColor,
+    stressBackgroundColor: captionItems[0]?.stressBackgroundColor,
+    stressStrokeEnabled: captionItems[0]?.stressStrokeEnabled,
+    stressStrokeColor: captionItems[0]?.stressStrokeColor,
+    stressStrokeWidth: captionItems[0]?.stressStrokeWidth,
+    stressFontFamily: captionItems[0]?.stressFontFamily,
+    stressFontSize: captionItems[0]?.stressFontSize,
+    stressFontWeight: captionItems[0]?.stressFontWeight,
+    stressFontStyle: captionItems[0]?.stressFontStyle,
+    stressPadding: captionItems[0]?.stressPadding,
+    stressCornerRadius: captionItems[0]?.stressCornerRadius,
+    stressAnimation: captionItems[0]?.stressAnimation,
+  }
 
   // Live update timeline captions
   function updateAllCaptions(patch) {
@@ -814,7 +854,7 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
             </div>
           ) : (
             captionItems.map((item, idx) => {
-              const isHidden = hiddenItems.has(item.id)
+              const isHidden = !!item.hidden
               const isSelected = selectedItemId === item.id
               const words = (item.text || '').split(' ')
               const nextItem = captionItems[idx + 1]
@@ -857,7 +897,7 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
                         <button
                           onClick={(e) => {
                             e.stopPropagation()
-                            toggleHideItem(item.id)
+                            toggleHideItem(item)
                           }}
                           className="flex h-7 w-7 items-center justify-center rounded-lg bg-dark-panel3 text-slate-400 hover:text-white transition"
                           title={isHidden ? 'Show subtitle' : 'Hide subtitle'}
@@ -1321,8 +1361,21 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
             icon={Wand2}
             title="AI Subtitles & Captions"
             description={currentTemplate ? `Preset: ${currentTemplate.name}` : 'Auto-generate styled subtitles'}
-            active={boostState.captions}
-            onToggle={() => toggleBoost('captions')}
+            active={captionsEnabled}
+            onToggle={() => {
+              if (captionItems.length === 0) {
+                // Nothing generated yet — transcribe (if needed) and
+                // generate styled captions from scratch.
+                enableAiCaptions()
+              } else if (captionsEnabled) {
+                // Hide every caption line from preview + export without
+                // deleting them (see setAllCaptionsHidden).
+                setAllCaptionsHidden(true)
+              } else {
+                // Previously hidden — restore them exactly as they were.
+                setAllCaptionsHidden(false)
+              }
+            }}
             actions={[
               { label: 'Style', onClick: () => setMode('style_captions') },
               { label: 'Edit', onClick: () => setMode('edit_captions') },
@@ -1341,44 +1394,50 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
             icon={ZoomIn}
             title="AI Auto Zooms"
             description="Auto-zoom key talking moments"
-            active={boostState.zooms}
-            onToggle={() => {
-              const turningOn = !boostState.zooms
-              toggleBoost('zooms')
-              if (turningOn && hasTranscript) {
+            active={zoomsEnabled}
+            disabled={isAutoEditing}
+            onToggle={async () => {
+              // Blocks a second click while a runAutoEdit request is still
+              // in flight — without this, toggling rapidly (or toggling
+              // Zooms while a B-roll request is running, since both share
+              // one isAutoEditing flag, same as the Scenes.jsx Magic
+              // buttons) could resolve out of order and leave the switch
+              // showing one state while the timeline has the other.
+              if (isAutoEditing) return
+              if (zoomsEnabled) {
+                // Turning it back off removes only what THIS feature added
+                // (source: "auto_edit") — any zoom the user placed by hand
+                // via a scene's Zoom toggle is left alone.
+                await removeAutoEditItems('zoom')
+              } else if (hasTranscript) {
                 // mode: 'zoom' — the AI call always returns b-roll
                 // suggestions too, but this tells the backend to only
                 // apply the zoom ones, so turning Zooms on never also
                 // drops a fresh, unrequested batch of b-roll on the
                 // timeline (see routers/auto_edit.py).
-                runAutoEdit('zoom')
-              } else if (!turningOn) {
-                // Turning it back off removes only what THIS feature added
-                // (source: "auto_edit") — any zoom the user placed by hand
-                // via a scene's Zoom toggle is left alone.
-                removeAutoEditItems('zoom')
+                await runAutoEdit('zoom')
               }
             }}
-            actions={[{ label: 'Edit', onClick: () => setMode('edit_captions') }]}
+            actions={[{ label: 'Edit', onClick: () => onTabChange('scenes') }]}
           />
 
           <BoostCard
             icon={Film}
             title="AI Auto B-rolls"
             description="Swap moments with stock B-roll footage"
-            active={boostState.broll}
-            onToggle={() => {
-              const turningOn = !boostState.broll
-              toggleBoost('broll')
-              if (turningOn && hasTranscript) {
+            active={brollEnabled}
+            disabled={isAutoEditing}
+            onToggle={async () => {
+              if (isAutoEditing) return
+              if (brollEnabled) {
+                // Same as Zooms above — clears only the AI-added b-roll
+                // clips, not anything manually attached from Scenes.jsx.
+                await removeAutoEditItems('broll')
+              } else if (hasTranscript) {
                 // mode: 'broll' — same reasoning as AI Auto Zooms above,
                 // scoped the other way: only b-roll gets applied, zoom is
                 // never touched.
-                runAutoEdit('broll')
-              } else if (!turningOn) {
-                // Same as Zooms above — clears only the AI-added b-roll
-                // clips, not anything manually attached from Scenes.jsx.
-                removeAutoEditItems('broll')
+                await runAutoEdit('broll')
               }
             }}
             actions={[{ label: 'Edit', onClick: () => onTabChange('scenes') }]}
@@ -1394,30 +1453,12 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
 
         <div className="flex flex-col gap-2.5">
           <BoostCard
-            icon={Sparkles}
-            iconBg="bg-primary/90"
-            title="AI Hook Intro Title"
-            description="Generate an engaging opening title"
-            active={boostState.hookTitle}
-            onToggle={() => toggleBoost('hookTitle')}
-          />
-
-          <BoostCard
             icon={Volume2}
             iconBg="bg-emerald-600"
             title="AI Clean Audio"
             description="Denoise and enhance speaker voice"
             active={boostState.cleanAudio}
             onToggle={() => toggleBoost('cleanAudio')}
-          />
-
-          <BoostCard
-            icon={Trash2}
-            iconBg="bg-rose-600"
-            title="Remove Bad Takes"
-            description="Detect and cut repeated sentence takes"
-            active={boostState.badTakes}
-            onToggle={() => toggleBoost('badTakes')}
           />
 
           <BoostCard
@@ -1428,8 +1469,31 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
             active={boostState.eyeContact}
             onToggle={() => toggleBoost('eyeContact')}
           />
+
+          <BoostCard
+            icon={Type}
+            iconBg="bg-amber-500"
+            title="AI Stress Text Highlighter"
+            description="Auto-detect and style important words in captions"
+            active={stressHighlightEnabled}
+            disabled={isSettingStressHighlight}
+            onToggle={async () => {
+              if (isSettingStressHighlight) return
+              if (captionItems.length === 0) return
+              await setStressHighlightEnabled(!stressHighlightEnabled)
+            }}
+            actions={[{ label: 'Edit', onClick: () => setStressModalOpen(true) }]}
+          />
         </div>
       </section>
+
+      {stressModalOpen && (
+        <StressHighlightModal
+          value={stressStyleValue}
+          onChange={(patch) => updateAllCaptions(patch)}
+          onClose={() => setStressModalOpen(false)}
+        />
+      )}
     </div>
   )
 }

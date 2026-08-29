@@ -127,7 +127,9 @@ export default function VideoPreview() {
   const sfxTrack = timeline?.tracks?.find((t) => t.type === 'sfx')
 
   const brollItems = brollTrack?.items || []
-  const captionItems = captionTrack?.items || []
+  // .hidden items are skipped in the live preview the same way render.py
+  // skips them at export — see models.py's `hidden` field.
+  const captionItems = (captionTrack?.items || []).filter((it) => !it.hidden)
   const overlayItems = overlayTrack?.items || []
   const zoomItems = zoomTrack?.items || []
   const ctaItems = ctaTrack?.items || []
@@ -388,17 +390,47 @@ export default function VideoPreview() {
                     }}
                   >
                     {words.map((w, wIdx) => {
-                      const isHighlighted = wIdx === 0 && item.highlightColor
+                      // "AI Stress Text Highlighter" — same word-splitting
+                      // convention render.py's _build_stress_caption_filters
+                      // uses (text.split(' ')), so the same indices mean the
+                      // same word in both preview and export. Falls back to
+                      // the older single-first-word `highlightColor` toggle
+                      // (still separately editable, untouched) for any word
+                      // that isn't a detected stress word.
+                      const isStress = item.stressWordIndices?.includes(wIdx)
+                      const isLegacyHighlight = !isStress && wIdx === 0 && item.highlightColor
+                      const hasStressBg = isStress && item.stressBackgroundColor != null
+                      const stressStrokeOn = isStress && (
+                        item.stressStrokeEnabled != null ? item.stressStrokeEnabled : strokeW > 0
+                      )
                       return (
                         <span
                           key={wIdx}
-                          className={isHighlighted ? 'rounded px-2 py-0.5 shadow-sm' : ''}
+                          className={`${isLegacyHighlight ? 'rounded px-2 py-0.5 shadow-sm' : ''} ${isStress ? `stress-anim-${item.stressAnimation || 'none'}` : ''}`}
                           style={{
-                            backgroundColor: isHighlighted ? item.highlightColor : undefined,
-                            color: isHighlighted ? '#0F172A' : undefined,
-                            WebkitTextStroke: isHighlighted ? 'none' : undefined,
-                            marginRight: wIdx < words.length - 1 ? '0.25em' : 0,
                             display: 'inline-block',
+                            marginRight: wIdx < words.length - 1 ? '0.25em' : 0,
+                            ...(isStress
+                              ? {
+                                color: item.stressColor || item.color || '#0F172A',
+                                backgroundColor: hasStressBg ? item.stressBackgroundColor : 'transparent',
+                                fontFamily: item.stressFontFamily
+                                  ? `'${item.stressFontFamily}', sans-serif`
+                                  : undefined,
+                                fontSize: item.stressFontSize ? Math.max(16, item.stressFontSize / 3.0) : undefined,
+                                fontWeight: item.stressFontWeight || undefined,
+                                fontStyle: item.stressFontStyle || 'normal',
+                                padding: hasStressBg ? `${(item.stressPadding ?? 12) / 6}px ${(item.stressPadding ?? 12) / 3}px` : 0,
+                                borderRadius: hasStressBg ? `${item.stressCornerRadius ?? 10}px` : 0,
+                                WebkitTextStroke: stressStrokeOn
+                                  ? `${Math.max(1, Math.round((item.stressStrokeWidth ?? strokeW ?? 2) / 2))}px ${item.stressStrokeColor || strokeColor}`
+                                  : 'none',
+                              }
+                              : {
+                                backgroundColor: isLegacyHighlight ? item.highlightColor : undefined,
+                                color: isLegacyHighlight ? '#0F172A' : undefined,
+                                WebkitTextStroke: isLegacyHighlight ? 'none' : undefined,
+                              }),
                           }}
                         >
                           {w}

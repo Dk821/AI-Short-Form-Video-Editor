@@ -100,6 +100,16 @@ export const api = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ templateId, wordsPerCaption, replaceExisting }),
     }).then(j),
+  // "AI Stress Text Highlighter" — enabled: true runs detection over every
+  // current caption line and returns the updated timeline; false clears it
+  // (the style itself lives on the caption items directly and is saved
+  // through the normal saveTimeline path, same as the base caption style).
+  setStressHighlight: (projectId, enabled) =>
+    fetch(`${BASE}/projects/${projectId}/captions/stress-highlight`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    }).then(j),
 
   // Milestone 3 — Gemini auto-edit
   // mode omitted -> apply every AI decision (zoom + b-roll together, the

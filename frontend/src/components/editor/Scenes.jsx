@@ -109,12 +109,17 @@ export default function Scenes() {
   // the OTHER track is left completely alone either way.
   async function regenerateMagicBroll() {
     if (isAutoEditing) return
-    removeAutoEditItems('broll')
+    // Awaited — removeAutoEditItems' own save must land on the server
+    // BEFORE the next /auto-edit call, or the backend applies the fresh
+    // batch on top of a copy that still has the old items, stacking
+    // duplicates instead of replacing them (removeAutoEditItems is now
+    // async for exactly this reason — see editorStore.js).
+    await removeAutoEditItems('broll')
     await runAutoEdit('broll')
   }
   async function regenerateMagicZoom() {
     if (isAutoEditing) return
-    removeAutoEditItems('zoom')
+    await removeAutoEditItems('zoom')
     await runAutoEdit('zoom')
   }
 

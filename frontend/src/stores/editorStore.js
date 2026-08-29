@@ -62,6 +62,8 @@ export const useEditorStore = create((set, get) => ({
   isAutoEditing: false,
   autoEditResult: null,
   autoEditError: null,
+  isSettingStressHighlight: false,
+  stressHighlightError: null,
 
   async init(existingProjectId) {
     set({ status: 'loading' })
@@ -144,6 +146,22 @@ export const useEditorStore = create((set, get) => ({
     }
   },
 
+  // "AI Stress Text Highlighter" boost toggle. `enabled: true` re-detects
+  // stress words for every current caption line (backend:
+  // stress_words.detect_stress_word_indices); `false` clears them without
+  // touching the style fields, so turning it back on needs no
+  // re-configuration — same "disable preserves data" shape as
+  // setAllCaptionsHidden.
+  async setStressHighlightEnabled(enabled) {
+    set({ isSettingStressHighlight: true, stressHighlightError: null })
+    try {
+      const timeline = await api.setStressHighlight(get().projectId, enabled)
+      set({ timeline, isSettingStressHighlight: false })
+    } catch (e) {
+      set({ isSettingStressHighlight: false, stressHighlightError: String(e) })
+    }
+  },
+
   // Milestone 3: Gemini structured edit decisions -> template engine -> timeline items.
   // `mode` ('zoom' | 'broll' | omitted) scopes which decision types the
   // backend actually applies — see api.runAutoEdit — so "Magic Zooms"
@@ -153,7 +171,22 @@ export const useEditorStore = create((set, get) => ({
     set({ isAutoEditing: true, autoEditError: null, autoEditResult: null })
     try {
       const result = await api.runAutoEdit(get().projectId, mode)
-      set({ timeline: result.timeline, autoEditResult: result.decisions, isAutoEditing: false })
+      // Magic B-roll downloads real Pexels footage server-side and the
+      // broll TimelineItems it creates point at those new assetIds — merge
+      // them into local state the same way attachBrollResult already does
+      // for the manual "Attach B-roll" flow, or `assets.find(a => a.id
+      // === item.assetId)` in VideoPreview.jsx comes back undefined and
+      // the b-roll layer silently renders blank even though the timeline
+      // item itself is perfectly valid.
+      const newAssets = result.assets || []
+      set((s) => ({
+        timeline: result.timeline,
+        assets: newAssets.length
+          ? [...s.assets, ...newAssets.filter((a) => !s.assets.some((existing) => existing.id === a.id))]
+          : s.assets,
+        autoEditResult: result.decisions,
+        isAutoEditing: false,
+      }))
     } catch (e) {
       set({ isAutoEditing: false, autoEditError: String(e) })
     }
@@ -606,7 +639,18 @@ export const useEditorStore = create((set, get) => ({
   // `source: "auto_edit"` by template_engine.py's apply_edit_decisions —
   // see models.py), leaving anything the user placed by hand (a scene's
   // Zoom toggle, a manually attached B-roll clip) untouched.
-  removeAutoEditItems(trackType) {
+  // Async and awaited by every caller before it fires the next
+  // runAutoEdit() — this used to fire-and-forget its persist() while the
+  // caller immediately POSTed /auto-edit right after. The backend applies
+  // new decisions on top of whatever timeline it last had *persisted*, not
+  // anything the client sends — so if that save hadn't landed yet, the
+  // still-there "removed" items were still on the server's copy and the
+  // fresh apply just appended more on top of them (confirmed by direct
+  // simulation: two applies with no completed removal in between left 3
+  // items on a track that should have had 1). Awaiting this closes that
+  // window for both the Scenes.jsx Magic buttons and the Sidebar boost
+  // toggles, which both call this immediately before runAutoEdit().
+  async removeAutoEditItems(trackType) {
     const track = get().trackByType(trackType)
     if (!track || !track.items.some((it) => it.source === 'auto_edit')) return
     set((s) => ({
@@ -617,7 +661,39 @@ export const useEditorStore = create((set, get) => ({
           : t)),
       },
     }))
+    await get().persist()
+  },
+
+  // "AI Subtitles & Captions" boost toggle (Sidebar.jsx). Turning it off
+  // hides every caption line from the live preview AND the export (see
+  // `hidden` on TimelineItem / render.py's caption loop) WITHOUT deleting
+  // them, so turning it back on instantly restores exactly what was there
+  // — text, styling, timing — with no re-transcription/re-generation.
+  setAllCaptionsHidden(hidden) {
+    set((s) => ({
+      timeline: {
+        ...s.timeline,
+        tracks: s.timeline.tracks.map((t) => (t.type === 'caption'
+          ? { ...t, items: t.items.map((it) => ({ ...it, hidden })) }
+          : t)),
+      },
+    }))
     get().persist()
+  },
+
+  // Turning "AI Subtitles & Captions" on for the first time (no caption
+  // track items exist yet): transcribe the main video if that hasn't
+  // happened yet, then generate styled captions from the transcript —
+  // same pipeline the "Generate Captions" project-creation flow uses.
+  // No-ops quietly if there's no main video, or if transcription fails
+  // (transcribeError is already surfaced elsewhere in the Captions tab).
+  async enableAiCaptions() {
+    if (!get().mainAsset()) return
+    if (!get().transcript?.words?.length) {
+      await get().transcribeMain()
+    }
+    if (!get().transcript?.words?.length) return
+    await get().generateCaptions('clean_bottom')
   },
 
   selectItem(itemId) {

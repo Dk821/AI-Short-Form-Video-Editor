@@ -114,12 +114,147 @@ def _css_to_ffmpeg_color(css_hex: str) -> str:
     return f"0x{h}"
 
 
+# Per-character width classes for _estimate_text_width — there's no
+# reliable font file to measure against (drawtext's font='Family Name'
+# resolves through fontconfig against whatever's actually installed on the
+# machine running ffmpeg, which this app doesn't control or bundle — see
+# _fontconfig_env above), so exact glyph metrics aren't available. This is
+# a deliberately simple average-width-per-character approximation, good
+# enough to lay out the short (typically 3-10 word) caption-style bursts
+# this app generates without visible drift, not a typesetting engine.
+_NARROW_CHARS = set("iIl.,:;'!|jtfr ")
+_WIDE_CHARS = set("mMWw@")
+
+
+def _estimate_text_width(text: str, font_size: float) -> float:
+    total = 0.0
+    for ch in text:
+        if ch in _WIDE_CHARS:
+            total += font_size * 0.82
+        elif ch in _NARROW_CHARS:
+            total += font_size * 0.30
+        else:
+            total += font_size * 0.56
+    return total
+
+
+def _resolve_font_variant(family: str | None, weight: int | None, style: str | None) -> str | None:
+    """fontconfig family strings accept trailing style keywords ('Inter
+    Bold', 'Inter Bold Italic') and fuzzy-match them against whatever
+    variants of that family are actually installed, falling back to the
+    nearest match rather than failing — same tolerant resolution
+    _fontconfig_env's docstring describes for the family name itself."""
+    if not family:
+        return family
+    suffix = ""
+    if weight and weight >= 700:
+        suffix += " Bold"
+    if style == "italic":
+        suffix += " Italic"
+    return f"{family}{suffix}"
+
+
 def _caption_y_expr(position: str, height: int) -> str:
     if position == "top":
         return f"{int(height * 0.08)}"
     if position == "center":
         return f"{int(height * 0.60)}-(text_h/2)"
     return f"h-{int(height * 0.14)}-text_h"  # bottom (default)
+
+
+def _build_stress_caption_filters(item, W: int, H: int, current: str, item_idx: int) -> tuple[list[str], str]:
+    """One drawtext filter PER WORD instead of the single whole-line
+    drawtext the normal caption path uses — the only way to give specific
+    words their own background/color/font/stroke, since a single drawtext
+    call has exactly one fontcolor/box for its whole string. x offsets are
+    pre-computed in Python with _estimate_text_width and baked in as
+    literal numbers (not an ffmpeg expression) since there's no way to
+    read one drawtext filter's rendered width from a later, separate
+    filter in the same chain. Only called for a line that actually has
+    stress words (see the caption loop below) — every other line keeps
+    the cheaper, exact single-drawtext path untouched."""
+    words = (item.text or "").split(" ")
+    stress_set = set(item.stressWordIndices or [])
+    end = item.start + item.duration
+    y = _caption_y_expr(item.position or "bottom", H)
+
+    base_font_size = item.fontSize or 64
+    stress_font_size = item.stressFontSize or base_font_size
+    space_w = _estimate_text_width(" ", base_font_size)
+
+    # Pass 1: figure out each word's effective size, then the whole line's
+    # estimated width so it can be centered as a block, matching the base
+    # path's `x=(w-text_w)/2` (here computed ahead of time in Python
+    # instead of read from ffmpeg's own text_w at render time).
+    sizes = [stress_font_size if wi in stress_set else base_font_size for wi in range(len(words))]
+    widths = [_estimate_text_width(w, sizes[wi]) for wi, w in enumerate(words)]
+    total_width = sum(widths) + space_w * max(0, len(words) - 1)
+    cursor_x = (W - total_width) / 2
+
+    stress_stroke_on = (
+        item.stressStrokeEnabled if item.stressStrokeEnabled is not None
+        else bool(item.strokeWidth and item.strokeColor)
+    )
+
+    new_filters: list[str] = []
+    for wi, word in enumerate(words):
+        if not word:
+            cursor_x += space_w
+            continue
+        is_stress = wi in stress_set
+        text = _escape_drawtext(word)
+        nxt = f"cap{item_idx}w{wi}"
+
+        if is_stress:
+            fontsize = stress_font_size
+            fontcolor = item.stressColor or item.color
+            family = _resolve_font_variant(
+                item.stressFontFamily or item.fontFamily, item.stressFontWeight, item.stressFontStyle,
+            )
+            bg = item.stressBackgroundColor  # None = deliberately no background
+            padding = item.stressPadding if item.stressPadding is not None else 12
+            if stress_stroke_on:
+                stroke_color = item.stressStrokeColor or item.strokeColor or "#000000"
+                stroke_width = item.stressStrokeWidth or item.strokeWidth or 1
+            else:
+                stroke_color = stroke_width = None
+        else:
+            fontsize = base_font_size
+            fontcolor = item.color
+            family = item.fontFamily
+            bg = item.backgroundColor
+            padding = 18
+            if item.strokeWidth and item.strokeColor:
+                stroke_color, stroke_width = item.strokeColor, item.strokeWidth
+            else:
+                stroke_color = stroke_width = None
+
+        parts = [
+            f"text='{text}'",
+            f"fontsize={fontsize}",
+            f"fontcolor={fontcolor}",
+            f"x={cursor_x:.1f}",
+            f"y={y}",
+        ]
+        if family:
+            parts.append(f"font='{family}'")
+        if bg:
+            parts.append(f"box=1:boxcolor={_css_to_ffmpeg_color(bg)}:boxborderw={padding}")
+        if stroke_width and stroke_color:
+            parts.append(f"borderw={stroke_width}:bordercolor={stroke_color}")
+        if (item.animation or "fade") != "none":
+            fade_dur = min(0.18, item.duration / 2)
+            parts.append(
+                f"alpha='if(lt(t,{item.start}+{fade_dur}),(t-{item.start})/{fade_dur},"
+                f"if(gt(t,{end}-{fade_dur}),({end}-t)/{fade_dur},1))'"
+            )
+        parts.append(f"enable='between(t,{item.start},{end})'")
+
+        new_filters.append(f"[{current}]drawtext={':'.join(parts)}[{nxt}]")
+        current = nxt
+        cursor_x += widths[wi] + space_w
+
+    return new_filters, current
 
 
 def probe_duration(path: str) -> float:
@@ -627,6 +762,22 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
     # that never went through a template.
     caption_items: List[TimelineItem] = caption_track.items if caption_track else []
     for i, item in enumerate(caption_items):
+        if item.hidden:
+            # "AI Subtitles & Captions" turned off, or this one line's
+            # eye-toggle hidden — skip it entirely rather than drawing it,
+            # while leaving the item itself untouched on the timeline so
+            # re-enabling needs no re-generation. See models.py's `hidden`.
+            continue
+
+        if item.stressWordIndices:
+            # "AI Stress Text Highlighter" — this line has detected words
+            # that need their own color/background/font, which a single
+            # drawtext call can't give a substring of its own text. See
+            # _build_stress_caption_filters.
+            stress_filters, current = _build_stress_caption_filters(item, W, H, current, i)
+            filters.extend(stress_filters)
+            continue
+
         text = _escape_drawtext(item.text or "")
         end = item.start + item.duration
         y = _caption_y_expr(item.position or "bottom", H)
