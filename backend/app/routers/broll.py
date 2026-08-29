@@ -105,7 +105,15 @@ def attach_broll(project_id: str, body: AttachBrollBody):
         "revealAnimation": reveal_anim,
         "revealDuration": reveal_dur,
     }
-    broll_track = next(t for t in project["timeline"]["tracks"] if t["type"] == "broll")
+    # Find-or-create rather than an unguarded next() with no default — every
+    # project has a "broll" track from creation (see routers/projects.py),
+    # but this stays correct even if that ever stops being guaranteed,
+    # instead of a bare next() raising StopIteration (an unhandled 500)
+    # the moment it isn't. Same pattern as routers/sfx.py's attach endpoint.
+    broll_track = next((t for t in project["timeline"]["tracks"] if t["type"] == "broll"), None)
+    if broll_track is None:
+        broll_track = {"id": "track_broll", "type": "broll", "items": []}
+        project["timeline"]["tracks"].append(broll_track)
     broll_track["items"].append(item)
 
     db.put_project(project_id, project)

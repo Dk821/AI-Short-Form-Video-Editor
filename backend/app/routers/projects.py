@@ -44,6 +44,20 @@ def create_project(
                 {"id": "track_audio", "type": "audio", "items": []},
                 {"id": "track_sfx", "type": "sfx", "items": []},
                 {"id": "track_zoom", "type": "zoom", "items": []},
+                # Speaker PiP, generic overlays, and template overlay-video
+                # bursts all live on "overlay"; CTA pills live on "cta" —
+                # both are now scaffolded up front like every other track,
+                # so a brand-new project (with or without a template picked
+                # at creation) never depends on some later find-or-create
+                # call being the first thing to reach for it. Every current
+                # caller that touches these already self-heals a missing
+                # track (see template_engine.py's _find_or_create_track and
+                # editorStore.js's findOrCreateTrack), so this doesn't fix a
+                # crash by itself — it just means the timeline a project
+                # starts with already matches the full Track.type set
+                # instead of only 6 of its 8 members.
+                {"id": "track_overlay", "type": "overlay", "items": []},
+                {"id": "track_cta", "type": "cta", "items": []},
             ],
         ),
         assets=[],

@@ -31,7 +31,6 @@ import { useEditorStore } from '../../stores/editorStore'
 import Scenes from './Scenes'
 import RevealAnimationModal from './animations/RevealAnimationModal'
 import { REVEAL_ANIMATIONS } from './animations/RevealAnimationPicker'
-import LayoutPicker from './animations/LayoutPicker'
 
 function Toggle({ active, onToggle }) {
   return (
@@ -161,6 +160,7 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
     autoEditResult,
     splitCaptionItem,
     mergeCaptionPair,
+    removeAutoEditItems,
   } = useEditorStore()
 
   const currentTemplate = useEditorStore((s) => (typeof s?.currentTemplate === 'function' ? s.currentTemplate() : null))
@@ -194,7 +194,15 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
     captions: true,
     silences: true,
     zooms: true,
-    broll: true,
+    // Off by default, like every toggle below it — it used to start ON
+    // even on a template-less project where nothing has actually been
+    // auto-added yet, which misrepresented the timeline as already having
+    // AI b-roll on it. The sync effect right below still turns this ON
+    // when an applied template's own broll config says enabled (its
+    // default is true — see templates/schema.py's BrollStyle), so a
+    // template-based "AI Auto Edit" project — which already ran the auto
+    // b-roll pass before the editor even opened — still shows correctly.
+    broll: false,
     hookTitle: false,
     cleanAudio: false,
     badTakes: false,
@@ -1335,8 +1343,21 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
             description="Auto-zoom key talking moments"
             active={boostState.zooms}
             onToggle={() => {
+              const turningOn = !boostState.zooms
               toggleBoost('zooms')
-              if (!boostState.zooms && hasTranscript) runAutoEdit()
+              if (turningOn && hasTranscript) {
+                // mode: 'zoom' — the AI call always returns b-roll
+                // suggestions too, but this tells the backend to only
+                // apply the zoom ones, so turning Zooms on never also
+                // drops a fresh, unrequested batch of b-roll on the
+                // timeline (see routers/auto_edit.py).
+                runAutoEdit('zoom')
+              } else if (!turningOn) {
+                // Turning it back off removes only what THIS feature added
+                // (source: "auto_edit") — any zoom the user placed by hand
+                // via a scene's Zoom toggle is left alone.
+                removeAutoEditItems('zoom')
+              }
             }}
             actions={[{ label: 'Edit', onClick: () => setMode('edit_captions') }]}
           />
@@ -1347,8 +1368,18 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
             description="Swap moments with stock B-roll footage"
             active={boostState.broll}
             onToggle={() => {
+              const turningOn = !boostState.broll
               toggleBoost('broll')
-              if (!boostState.broll && hasTranscript) runAutoEdit()
+              if (turningOn && hasTranscript) {
+                // mode: 'broll' — same reasoning as AI Auto Zooms above,
+                // scoped the other way: only b-roll gets applied, zoom is
+                // never touched.
+                runAutoEdit('broll')
+              } else if (!turningOn) {
+                // Same as Zooms above — clears only the AI-added b-roll
+                // clips, not anything manually attached from Scenes.jsx.
+                removeAutoEditItems('broll')
+              }
             }}
             actions={[{ label: 'Edit', onClick: () => onTabChange('scenes') }]}
           />
@@ -1560,7 +1591,7 @@ function TrimTab() {
                   <p className="text-xs font-bold text-slate-100 truncate">
                     {REVEAL_ANIMATIONS.find((a) => a.id === (selectedItem.revealAnimation || 'slide_down'))?.label || 'Slide Down'}
                   </p>
-                  <p className="text-[10px] text-slate-400">Edit Transition</p>
+                  <p className="text-[10px] text-slate-400">Edit Transition & Layout</p>
                 </div>
                 <Wand2 className="h-4 w-4 text-primary shrink-0" />
               </button>
@@ -1569,16 +1600,11 @@ function TrimTab() {
                 <RevealAnimationModal
                   value={selectedItem.revealAnimation || 'slide_down'}
                   onChange={(id) => updateItem(selectedItem.id, { revealAnimation: id })}
+                  layoutValue={selectedItem.layout || 'full'}
+                  onLayoutChange={(id) => updateItem(selectedItem.id, { layout: id })}
                   onClose={() => setTransitionModalOpen(false)}
                 />
               )}
-
-              <span className="text-[10px] font-extrabold uppercase tracking-wider text-slate-400 mt-1">Screen Layout</span>
-              <LayoutPicker
-                value={selectedItem.layout || 'full'}
-                onChange={(id) => updateItem(selectedItem.id, { layout: id })}
-                columns={3}
-              />
 
               <label className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-300 mt-1">
                 <span>Reveal Speed (s)</span>

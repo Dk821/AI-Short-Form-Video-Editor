@@ -88,6 +88,16 @@ class TimelineItem(BaseModel):
     # position/fontSize) plus this icon name.
     ctaIcon: Optional[str] = None
 
+    # Set to "auto_edit" on every zoom/broll/overlay item template_engine.py's
+    # apply_edit_decisions creates from an AI auto-edit pass (see
+    # routers/auto_edit.py) — never set on a manually-placed item (a scene's
+    # Zoom toggle, an attached B-roll clip). This is the only thing telling
+    # the two apart, since both share the exact same "<type>_<8 hex>" id
+    # pattern — see Sidebar.jsx's AI Auto Zooms/B-rolls boost cards, which
+    # use it to remove only what THEY added when the feature is turned back
+    # off, instead of wiping out anything the user placed by hand.
+    source: Optional[Literal["auto_edit"]] = None
+
 
 class Track(BaseModel):
     id: str

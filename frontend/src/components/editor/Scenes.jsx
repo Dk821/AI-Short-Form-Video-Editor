@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import {
   ZoomIn, Film, Plus, Wand2, Trash2, MessageSquare, Check, Music, MousePointerClick, User, RefreshCw, Scissors,
+  Sparkles, Loader2,
 } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
 import RevealAnimationModal from './animations/RevealAnimationModal'
@@ -26,6 +27,7 @@ export default function Scenes() {
     speakerItemsInRange, toggleZoomForScene, toggleSpeakerForScene,
     openBrollLibraryForScene, openSfxPickerForScene, openCtaPickerForScene,
     removeItem, updateItem, transcribeMain, isTranscribing, mainAsset,
+    runAutoEdit, isAutoEditing, autoEditError, removeAutoEditItems,
   } = useEditorStore()
 
   const [openMenuKey, setOpenMenuKey] = useState(null) // `${sceneId}:${'broll'|'sfx'|'cta'|'add'}`
@@ -93,6 +95,29 @@ export default function Scenes() {
     closeMenus()
   }
 
+  // "Magic B-rolls" / "Magic Zooms" at the top of the panel — a reroll
+  // button for the whole video at once, instead of scene-by-scene. Each
+  // one is scoped to ONLY its own track: runAutoEdit(mode) tells the
+  // backend to apply just that type of AI decision (see
+  // routers/auto_edit.py's _MODE_MOMENT_TYPE), so clicking "Magic Zooms"
+  // never also drops a fresh batch of b-roll on the timeline, and vice
+  // versa. Clearing that track's existing `source: "auto_edit"` items
+  // first (see models.py / removeAutoEditItems) is what makes this "a NEW
+  // set" instead of piling a second batch on top of whatever the last
+  // click (or the matching AI Boost toggle in Sidebar.jsx) already added —
+  // a manually placed zoom/b-roll (no `source` tag) is never touched, and
+  // the OTHER track is left completely alone either way.
+  async function regenerateMagicBroll() {
+    if (isAutoEditing) return
+    removeAutoEditItems('broll')
+    await runAutoEdit('broll')
+  }
+  async function regenerateMagicZoom() {
+    if (isAutoEditing) return
+    removeAutoEditItems('zoom')
+    await runAutoEdit('zoom')
+  }
+
   // Shared look for every pill in the row — active (attached / toggled on)
   // vs. idle, so Zoom/Speaker toggles and B-roll/Sound/CTA chips read as
   // one consistent family instead of two different button styles.
@@ -102,7 +127,47 @@ export default function Scenes() {
   const pillIdle = 'bg-dark-panel3 text-slate-400 border border-dark-border hover:bg-dark-panel hover:text-slate-200'
 
   return (
-    <div className="flex flex-col p-4">
+    <div className="flex flex-col">
+      {/* Magic B-rolls / Magic Zooms — sticky at the top of the panel so
+          they're always reachable while scrolling a long scene list,
+          instead of scrolling out of view at the bottom. Regenerates a
+          fresh AI edit pass for the whole video, rather than one scene's
+          pill row at a time. */}
+      <div className="sticky top-0 z-20 flex flex-col gap-2 border-b border-dark-border bg-dark-panel px-4 pb-3 pt-4 shadow-md shadow-black/20">
+        {autoEditError && (
+          <div className="rounded-xl border border-danger/30 bg-red-950/40 p-2.5 text-[11px] font-semibold text-danger">
+            {autoEditError}
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-2.5">
+          <button
+            type="button"
+            onClick={regenerateMagicBroll}
+            disabled={isAutoEditing}
+            title="Get a fresh set of AI b-rolls — zooms are left as they are"
+            className="flex items-center justify-center gap-2 rounded-2xl border border-primary/40 bg-primary/15 px-3 py-3 text-xs font-extrabold text-primary transition hover:bg-primary/25 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isAutoEditing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Film className="h-4 w-4" />}
+            Magic B-rolls
+          </button>
+          <button
+            type="button"
+            onClick={regenerateMagicZoom}
+            disabled={isAutoEditing}
+            title="Get a fresh set of AI zooms — b-rolls are left as they are"
+            className="flex items-center justify-center gap-2 rounded-2xl border border-primary/40 bg-primary/15 px-3 py-3 text-xs font-extrabold text-primary transition hover:bg-primary/25 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isAutoEditing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ZoomIn className="h-4 w-4" />}
+            Magic Zooms
+          </button>
+        </div>
+        <p className="flex items-center gap-1 px-0.5 text-[10px] text-slate-500">
+          <Sparkles className="h-2.5 w-2.5" />
+          Each button only refreshes its own effect — anything you placed by hand, or the other effect, stays put.
+        </p>
+      </div>
+
+      <div className="flex flex-col p-4">
       {sceneList.map((scene, idx) => {
         const zoomActive = zoomItemsInRange(scene.start, scene.end).length > 0
         const speakerActive = speakerItemsInRange(scene.start, scene.end).length > 0
@@ -370,11 +435,14 @@ export default function Scenes() {
           </div>
         )
       })}
+      </div>
 
       {transitionItem && (
         <RevealAnimationModal
           value={transitionItem.revealAnimation || 'slide_down'}
           onChange={(id) => updateItem(transitionItem.id, { revealAnimation: id })}
+          layoutValue={transitionItem.layout || 'full'}
+          onLayoutChange={(id) => updateItem(transitionItem.id, { layout: id })}
           onClose={() => setTransitionItemId(null)}
         />
       )}

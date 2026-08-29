@@ -63,6 +63,36 @@ function RawSourceOverlayVideo({ item, currentTime }) {
   )
 }
 
+// Plays back one audio/sfx track item's clip in sync with the main video —
+// without this, an attached sound effect only ever plays in the exported
+// file (render.py's amix), never in the live canvas, which reads as "the
+// sound effect doesn't work" even though it's correctly on the timeline.
+// Seeks to (item.sourceStart + elapsed-since-item.start) exactly like the
+// main video's own currentTime-sync effect below, and mirrors the same
+// isMuted/volume controls so muting the preview mutes everything in it,
+// not just the main clip.
+function TrackAudioPlayer({ item, src, currentTime, isPlaying, isMuted, volume }) {
+  const audioRef = useRef(null)
+
+  useEffect(() => {
+    const el = audioRef.current
+    if (!el) return
+    const target = Math.max(0, (item.sourceStart || 0) + (currentTime - item.start))
+    if (Math.abs(el.currentTime - target) > 0.25) {
+      el.currentTime = target
+    }
+    el.muted = isMuted
+    el.volume = Math.max(0, Math.min(1, (item.volume ?? 1) * volume))
+    if (isPlaying && el.paused) {
+      el.play().catch(() => {})
+    } else if (!isPlaying && !el.paused) {
+      el.pause()
+    }
+  }, [currentTime, isPlaying, isMuted, volume, item.start, item.sourceStart, item.volume])
+
+  return <audio ref={audioRef} src={src} preload="auto" />
+}
+
 // Canvas layer order, back to front — keep every z-index in this file (and
 // in BrollAnimation.jsx / SpeakerPreview.jsx) matching this list, since
 // it's the one thing standing between "widgets read correctly" and a
@@ -93,12 +123,16 @@ export default function VideoPreview() {
   const overlayTrack = timeline?.tracks?.find((t) => t.type === 'overlay')
   const zoomTrack = timeline?.tracks?.find((t) => t.type === 'zoom')
   const ctaTrack = timeline?.tracks?.find((t) => t.type === 'cta')
+  const audioTrack = timeline?.tracks?.find((t) => t.type === 'audio')
+  const sfxTrack = timeline?.tracks?.find((t) => t.type === 'sfx')
 
   const brollItems = brollTrack?.items || []
   const captionItems = captionTrack?.items || []
   const overlayItems = overlayTrack?.items || []
   const zoomItems = zoomTrack?.items || []
   const ctaItems = ctaTrack?.items || []
+  const audioItems = audioTrack?.items || []
+  const sfxItems = sfxTrack?.items || []
 
   // Speaker items also live on the "overlay" track (see models.py) but are
   // never rendered through the generic BrollAnimation full-frame/split
@@ -416,6 +450,27 @@ export default function VideoPreview() {
                 </span>
               </div>
             ))}
+
+            {/* Audio & SFX tracks — no visual, just kept in sync with
+                playback (see TrackAudioPlayer above) so an attached sound
+                effect is actually audible while scrubbing/playing here,
+                not just in the exported file. */}
+            {[...audioItems, ...sfxItems].filter(activeAt).map((item) => {
+              const asset = item.assetId ? assets.find((a) => a.id === item.assetId) : null
+              const src = asset ? api.assetUrl(asset) : item.sourceUrl
+              if (!src) return null
+              return (
+                <TrackAudioPlayer
+                  key={item.id}
+                  item={item}
+                  src={src}
+                  currentTime={currentTime}
+                  isPlaying={isPlaying}
+                  isMuted={isMuted}
+                  volume={volume}
+                />
+              )
+            })}
           </div>
         </div>
 

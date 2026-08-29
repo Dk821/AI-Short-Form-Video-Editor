@@ -1,0 +1,1 @@
+Bridge write flow test — connection re-established.

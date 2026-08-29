@@ -16,7 +16,18 @@ async function j(res) {
 
 export const api = {
   createProject: (params = {}) => {
-    const q = new URLSearchParams(params).toString()
+    // `new URLSearchParams({ templateId: undefined })` does NOT drop the
+    // key — it stringifies the value, so an omitted templateId (the
+    // "Generate Captions"/"Blank Project" flows, and createFromTemplate()
+    // called with no id) becomes the literal query string
+    // "templateId=undefined". The backend then looks that up as a real
+    // template id, finds nothing, and 404s with "Unknown template
+    // 'undefined'" — even though no template was ever meant to be sent.
+    // Stripping undefined/null entries first is what actually omits the key.
+    const cleaned = Object.fromEntries(
+      Object.entries(params).filter(([, v]) => v !== undefined && v !== null)
+    )
+    const q = new URLSearchParams(cleaned).toString()
     return fetch(`${BASE}/projects?${q}`, { method: 'POST' }).then(j)
   },
   listProjects: () => fetch(`${BASE}/projects`).then(j),
@@ -91,7 +102,14 @@ export const api = {
     }).then(j),
 
   // Milestone 3 — Gemini auto-edit
-  runAutoEdit: (projectId) => fetch(`${BASE}/projects/${projectId}/auto-edit`, { method: 'POST' }).then(j),
+  // mode omitted -> apply every AI decision (zoom + b-roll together, the
+  // original behavior); mode 'zoom' or 'broll' -> the backend only applies
+  // moments of that one type, so the other track is never touched (see
+  // routers/auto_edit.py's _MODE_MOMENT_TYPE).
+  runAutoEdit: (projectId, mode) => {
+    const q = mode ? `?${new URLSearchParams({ mode })}` : ''
+    return fetch(`${BASE}/projects/${projectId}/auto-edit${q}`, { method: 'POST' }).then(j)
+  },
 
   // SFX Library — bundled placeholder sounds (see backend/app/sfx/library/
   // README.txt). No search step needed (the whole catalog is already

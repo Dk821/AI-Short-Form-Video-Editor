@@ -144,11 +144,15 @@ export const useEditorStore = create((set, get) => ({
     }
   },
 
-  // Milestone 3: Gemini structured edit decisions -> template engine -> timeline items
-  async runAutoEdit() {
+  // Milestone 3: Gemini structured edit decisions -> template engine -> timeline items.
+  // `mode` ('zoom' | 'broll' | omitted) scopes which decision types the
+  // backend actually applies — see api.runAutoEdit — so "Magic Zooms"
+  // (Scenes.jsx) or the "AI Auto Zooms" boost toggle (Sidebar.jsx) never
+  // also drops fresh b-roll on the timeline, and vice versa.
+  async runAutoEdit(mode) {
     set({ isAutoEditing: true, autoEditError: null, autoEditResult: null })
     try {
-      const result = await api.runAutoEdit(get().projectId)
+      const result = await api.runAutoEdit(get().projectId, mode)
       set({ timeline: result.timeline, autoEditResult: result.decisions, isAutoEditing: false })
     } catch (e) {
       set({ isAutoEditing: false, autoEditError: String(e) })
@@ -590,6 +594,28 @@ export const useEditorStore = create((set, get) => ({
         })),
       },
       selectedItemId: s.selectedItemId === itemId ? null : s.selectedItemId,
+    }))
+    get().persist()
+  },
+
+  // Turning "AI Auto Zooms"/"AI Auto B-rolls" back OFF (Sidebar.jsx) used
+  // to just flip the boost card's own on/off flag and leave every item the
+  // AI had added still sitting on the timeline — the toggle looked off but
+  // nothing about the video actually changed. This removes only the items
+  // that specific auto-edit pass added to `trackType` (marked
+  // `source: "auto_edit"` by template_engine.py's apply_edit_decisions —
+  // see models.py), leaving anything the user placed by hand (a scene's
+  // Zoom toggle, a manually attached B-roll clip) untouched.
+  removeAutoEditItems(trackType) {
+    const track = get().trackByType(trackType)
+    if (!track || !track.items.some((it) => it.source === 'auto_edit')) return
+    set((s) => ({
+      timeline: {
+        ...s.timeline,
+        tracks: s.timeline.tracks.map((t) => (t.type === trackType
+          ? { ...t, items: t.items.filter((it) => it.source !== 'auto_edit') }
+          : t)),
+      },
     }))
     get().persist()
   },

@@ -113,6 +113,7 @@ def apply_edit_decisions(
                     duration=duration,
                     transform=Transform(scale=scale),
                     zIndex=50,
+                    source="auto_edit",
                 )
             )
 
@@ -135,6 +136,7 @@ def apply_edit_decisions(
                     transform=Transform(scale=b_scale),
                     zIndex=10,
                     keyword=m.keyword,
+                    source="auto_edit",
                 )
             )
 
@@ -166,6 +168,7 @@ def apply_edit_decisions(
                     blendMode=o_blend,
                     zIndex=200,
                     templateId=template.id if template else None,
+                    source="auto_edit",
                 )
             )
 

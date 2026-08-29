@@ -1,3 +1,5 @@
+from typing import Literal, Optional
+
 from fastapi import APIRouter, HTTPException
 
 from .. import db
@@ -9,9 +11,18 @@ from ..templates import get_template
 
 router = APIRouter(prefix="/api/projects", tags=["auto-edit"])
 
+# EditMoment.type value each mode keeps — everything else gets filtered out
+# of `decisions.moments` before apply_edit_decisions ever sees it. This is
+# what makes "Magic Zooms" (Scenes.jsx) or the "AI Auto Zooms" boost toggle
+# (Sidebar.jsx) touch ONLY the zoom track and leave b-roll (and vice versa)
+# completely alone — the single Gemini call still returns zoom AND b-roll
+# suggestions together every time, so filtering which of those moments
+# actually get applied is the only way to scope one without the other.
+_MODE_MOMENT_TYPE = {"zoom": "zoom", "broll": "broll_suggestion"}
+
 
 @router.post("/{project_id}/auto-edit")
-def auto_edit(project_id: str):
+def auto_edit(project_id: str, mode: Optional[Literal["zoom", "broll"]] = None):
     project = db.get_project(project_id)
     if not project:
         raise HTTPException(404, "Project not found")
@@ -35,6 +46,10 @@ def auto_edit(project_id: str):
         decisions = validate_decisions(raw, duration)
     except ValueError as e:
         raise HTTPException(502, f"AI auto-edit returned an unusable response: {e}")
+
+    if mode:
+        wanted_type = _MODE_MOMENT_TYPE[mode]
+        decisions.moments = [m for m in decisions.moments if m.type == wanted_type]
 
     # Milestone 3 B-roll: resolve each suggested keyword to real footage.
     # Best-effort — a missing PEXELS_API_KEY, empty search, or failed
