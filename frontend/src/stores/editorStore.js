@@ -19,6 +19,9 @@ export const useEditorStore = create((set, get) => ({
   exportFormat: 'mp4', // 'mp4' | 'webm' | 'gif' — the export panel's 3 format options
   exportQuality: 'standard', // 'draft' | 'standard' | 'high'
   exportFrameRate: null, // null = match the project's own fps; otherwise 24 | 30 | 60
+  exportEngine: 'ffmpeg', // 'ffmpeg' (local, all formats) | 'shotstack' (cloud, mp4)
+  exportEngines: null,    // populated from /api/export/engines
+  exportPreflight: null,  // { ok, errors, warnings } from the Shotstack dry-run
   isSavingProject: false, // Toolbar's explicit "Save" button — see saveProject()
   saveError: null,
   status: 'idle', // idle | loading | ready | error
@@ -790,27 +793,61 @@ export const useEditorStore = create((set, get) => ({
   setExportFrameRate(frameRate) {
     set({ exportFrameRate: frameRate })
   },
+  async setExportEngine(engine) {
+    set({ exportEngine: engine, exportPreflight: null })
+    // Shotstack can't reproduce every construct the editor supports, so run
+    // the backend's dry-run validation as soon as it's chosen and surface
+    // the result before the user commits to a render.
+    if (engine === 'shotstack') {
+      try {
+        set({ exportPreflight: await api.exportPreflight(get().projectId) })
+      } catch (e) {
+        set({ exportPreflight: { ok: false, errors: [String(e)], warnings: [] } })
+      }
+    }
+  },
+  async loadExportEngines() {
+    try {
+      set({ exportEngines: await api.listExportEngines() })
+    } catch {
+      // Non-fatal: the panel just shows FFmpeg only.
+      set({ exportEngines: null })
+    }
+  },
 
   // Called by the export panel's "Save" button: persists the currently
   // selected format/quality/frame rate as the project's export settings,
   // saves the timeline (same as every other edit), and immediately starts
   // rendering with those settings.
   async startExport(opts = {}) {
-    const { projectId, exportFormat, exportQuality, exportFrameRate } = get()
-    const format = opts.format || exportFormat
+    const { projectId, exportFormat, exportQuality, exportFrameRate, exportEngine } = get()
+    const engine = opts.engine || exportEngine
+    // Shotstack renders MP4 only; fall back rather than letting the request 400.
+    const format = engine === 'shotstack' ? 'mp4' : (opts.format || exportFormat)
     const quality = opts.quality || exportQuality
     const frameRate = opts.frameRate !== undefined ? opts.frameRate : exportFrameRate
-    set({ exportFormat: format, exportQuality: quality, exportFrameRate: frameRate })
+    set({ exportFormat: format, exportQuality: quality, exportFrameRate: frameRate, exportEngine: engine })
     await get().persist()
-    const job = await api.startExport(projectId, { format, quality, frameRate: frameRate || undefined })
-    set({ exportJob: job })
-    const poll = async () => {
-      const status = await api.getExportStatus(job.id)
-      set({ exportJob: status })
-      if (status.status === 'queued' || status.status === 'processing') {
-        setTimeout(poll, 1200)
+    try {
+      const job = await api.startExport(projectId, { format, quality, frameRate: frameRate || undefined, engine })
+      set({ exportJob: job })
+      const poll = async () => {
+        try {
+          const status = await api.getExportStatus(job.id)
+          set({ exportJob: status })
+          if (status.status === 'queued' || status.status === 'processing') {
+            setTimeout(poll, 1200)
+          }
+        } catch (e) {
+          // Losing the poll must not strand the UI on "Rendering" forever.
+          set({ exportJob: { ...get().exportJob, status: 'failed', error: String(e) } })
+        }
       }
+      poll()
+    } catch (e) {
+      // A rejected submit (bad engine, missing key, unsupported format) never
+      // produces a job record, so synthesise one so the panel can show why.
+      set({ exportJob: { status: 'failed', error: String(e), engine } })
     }
-    poll()
   },
 }))

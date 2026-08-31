@@ -26,24 +26,37 @@ It features word-level speech transcription via Groq Whisper API, dynamic preset
 │   │   ├── ai_edit.py               # AI Auto-edit LLM prompt & hard validation gate (OpenRouter + Gemini fallback)
 │   │   ├── template_engine.py       # Decision-to-timeline converter (EditDecisions -> TimelineItems)
 │   │   ├── render.py                # FFmpeg multi-track filtergraph render engine for video/audio export
-│   │   ├── pexels.py                # Pexels stock VIDEO + PHOTO search, preview, and auto-download manager (auto-edit's automatic fetch, and the manual B-roll Library's Image/Video Search tabs)
-│   │   ├── stress_words.py          # "AI Stress Text Highlighter": deterministic, offline, non-AI heuristic that scores each caption word (numbers, an intensifier list, mid-line capitalization, non-stopword length) and returns the top N indices to highlight
+│   │   ├── pexels.py                # Pexels stock VIDEO + PHOTO search, preview, and auto-download manager
+│   │   ├── shotstack.py             # Shotstack Cloud API client for cloud video rendering
+│   │   ├── shotstack_timeline.py    # Timeline JSON to Shotstack Edit JSON converter & validator
+│   │   ├── stress_words.py          # "AI Stress Text Highlighter": deterministic offline heuristic to highlight key words
+│   │   ├── sfx/                     # Bundled sound effects library registry & catalog (`sfx` track)
+│   │   │   ├── registry.py          # SFX catalog listing, duration probing & URL path resolver
+│   │   │   └── library/             # Bundled audio files (switches, pops, swooshes, risers)
+│   │   ├── overlays/                # Video overlay filter validation & overlay plan manager
+│   │   │   ├── manager.py           # Overlay manager for loading overlay definitions
+│   │   │   ├── resolver.py          # Pure resolution function computing overlay start/duration/t-params for FFmpeg
+│   │   │   └── validator.py         # Validation rules for overlay assets
 │   │   ├── routers/
 │   │   │   ├── projects.py          # Project management routes (CRUD operations)
-│   │   │   ├── upload.py            # Video/audio/image asset file upload router with FFprobe metadata extraction — also powers the B-roll Library's Upload Local tab
+│   │   │   ├── upload.py            # Asset file upload router with FFprobe metadata extraction
 │   │   │   ├── transcription.py     # Speech-to-text trigger router
-│   │   │   ├── captions.py          # Caption generation router, incl. the stress-highlight enable/disable endpoint
-│   │   │   ├── auto_edit.py         # AI auto-edit router & Pexels resolution — returns newly-downloaded B-roll assets in its response so the frontend's local asset state always stays in sync with the timeline items it just created
+│   │   │   ├── captions.py          # Caption generation router & stress-highlight toggle endpoint
+│   │   │   ├── auto_edit.py         # AI auto-edit router & Pexels resolution
 │   │   │   ├── templates.py         # Video template application router & static asset serving
-│   │   │   ├── broll.py             # Manual B-roll Library router: search (Image/Video, Pexels) + attach (by downloadUrl for a fresh Pexels pick, or by assetId for an already-uploaded local file) — always returns {asset, item, timeline} together
-│   │   │   └── export.py            # Background render job router & file download handler
+│   │   │   ├── broll.py             # B-roll Library router (Pexels search + local asset attach)
+│   │   │   ├── sfx.py               # SFX catalog browser & timeline attacher router
+│   │   │   └── export.py            # Render job router, preflight validator, Shotstack webhook & file download handler
 │   │   └── templates/
 │   │       ├── schema.py            # Typed video template Pydantic schemas (CaptionStyle, BrollStyle, OverlayStyle)
 │   │       ├── registry.py          # Dynamic template loader & JSON presets parser
 │   │       └── library/             # Preset JSON templates (viral, gaming, podcast, business, etc.)
-│   │           ├── thumbnails/      # Template preview thumbnails (referenced by thumbnailUrl; not yet present on disk — see Known Gaps)
-│   │           └── overlays/        # Bundled video overlay loops (light leaks, film grain) — same gap as above
-│   ├── .env                         # API keys (GROQ_API_KEY, OPENROUTER_API_KEY, GEMINI_API_KEY, PEXELS_API_KEY)
+│   │           ├── thumbnails/      # Template preview thumbnails (referenced by thumbnailUrl)
+│   │           └── overlays/        # Bundled video overlay loops (light leaks, film grain)
+│   ├── .env                         # API keys (GROQ_API_KEY, OPENROUTER_API_KEY, GEMINI_API_KEY, PEXELS_API_KEY, SHOTSTACK_API_KEY)
+│   ├── .gitignore                   # Backend git ignore rules
+│   ├── diagnose_export.py           # Diagnostic script to run ladder of FFmpeg commands against input media
+│   ├── test_shotstack_export.py     # Offline test suite for Shotstack conversion & validation
 │   └── requirements.txt             # Python dependencies (fastapi, uvicorn, pydantic, requests, etc.)
 │
 └── frontend/
@@ -52,29 +65,32 @@ It features word-level speech transcription via Groq Whisper API, dynamic preset
     │   ├── App.jsx                  # Main router setup
     │   ├── index.css                # Global CSS styles & Tailwind directives
     │   ├── pages/
-    │   │   ├── Dashboard.jsx        # Project list, creation modal, project management dashboard (shows project.coverImage when set)
+    │   │   ├── Dashboard.jsx        # Project list, creation modal, project management dashboard
     │   │   └── EditorPage.jsx       # Interactive video editor workspace page
     │   ├── components/
     │   │   ├── dashboard/
     │   │   │   └── CreateProjectModal.jsx # Project creation modal with template & aspect ratio selector
     │   │   └── editor/
-    │   │       ├── VideoPreview.jsx # HTML5 live preview canvas — animated captions, zoom transforms, B-roll overlays, and the Cover Image scrub/save tab
-    │   │       ├── Timeline.jsx     # Multi-track timeline control panel wrapper (currently dead code — not imported/rendered anywhere; Scenes.jsx is the live per-scene b-roll UI)
-    │   │       ├── TimelineTrack.jsx# Individual track container (video, broll, caption, audio, zoom, overlay) — see note above
-    │   │       ├── TimelineItem.jsx # Draggable/resizable timeline elements — see note above
-    │   │       ├── Sidebar.jsx      # Control panel tabs (Captions / Edit Scenes / Trim); all three panels stay mounted and are shown/hidden via CSS so switching tabs doesn't lose in-progress state. AI BOOST FEATURES / ADVANCED AI TOOLS toggles (Auto Zooms, Auto B-rolls, AI Stress Text Highlighter) derive their on/off state from what's actually on the timeline/captions, never a local flag, and guard against re-firing while a request is already in flight
-    │   │       ├── Toolbar.jsx      # Navigation bar (Export, Undo/Redo, Save, top-level tab switcher mirroring Sidebar's tabs)
-    │   │       ├── BrollPicker.jsx  # B-roll Library modal, built around three source tabs — Image Search, Video Search (both Pexels, paginated), and Upload Local (any image/video from disk) — each producing selectable media cards, a shared right-side panel for Placement Target / Duration / Screen Layout / Reveal Animation, a "Preview" lightbox, and one explicit "Add to Timeline" button that attaches the pick
+    │   │       ├── VideoPreview.jsx # HTML5 live preview canvas — animated captions, zoom transforms, B-roll overlays, Cover Image tab
+    │   │       ├── Timeline.jsx     # Multi-track timeline control panel wrapper
+    │   │       ├── TimelineTrack.jsx# Individual track container (video, broll, caption, audio, zoom, overlay, sfx)
+    │   │       ├── TimelineItem.jsx # Draggable/resizable timeline elements
+    │   │       ├── Sidebar.jsx      # Control panel tabs (Captions / Edit Scenes / Trim / SFX / CTA), CSS visibility toggles
+    │   │       ├── Toolbar.jsx      # Navigation bar (Export modal trigger, Undo/Redo, Save, top-level tab switcher)
+    │   │       ├── BrollPicker.jsx  # B-roll Library modal (Image Search / Video Search / Upload Local)
+    │   │       ├── SfxPicker.jsx    # Bundled SFX catalog browser & attacher modal
+    │   │       ├── CtaPicker.jsx    # Call-To-Action stickers & badges picker modal
+    │   │       ├── ExportPanel.jsx  # Dual export modal — Local FFmpeg & Cloud Shotstack, MP4/WebM/GIF formats, Quality, FPS
+    │   │       ├── StressHighlightModal.jsx # AI Stress Text Highlighter style editor modal
     │   │       ├── TemplateLibrary.jsx # Video style template selector modal
-    │   │       ├── Scenes.jsx       # Sentence-level scene view; the per-scene b-roll indicator opens a picker when empty, or a 3-option dropdown (Add New / Edit Transition / Delete) when a b-roll is already attached. "Magic B-roll"/"Magic Zooms" regenerate actions await the old auto-edit items being removed before requesting new ones, closing a race that could otherwise duplicate items
+    │   │       ├── Scenes.jsx       # Sentence-level scene view with b-roll indicator & 3-option dropdown
     │   │       └── animations/
-    │   │           ├── index.js             # Re-exports BrollAnimation, SplitScreenLayout, and their compute*Style helpers
-    │   │           ├── BrollAnimation.jsx   # B-roll reveal animation (slide/fade/zoom/wipe/bounce) + continuous hold-phase drift once revealed
-    │   │           ├── SplitScreenLayout.jsx# Main video's split-screen placement — shrinks from fullscreen into its half in sync with the b-roll's reveal, plus its own hold-phase parallax drift
-    │   │           ├── driftMotion.js       # Shared "hold-phase drift" constants/formula (mirrored exactly in backend/app/render.py) so preview and export move identically
-    │   │           └── StressHighlightModal.jsx # "AI Stress Text Highlighter" style editor — text/background color, no-background toggle, stroke on/off + color/width, font family/size/weight, normal/italic, highlight padding & corner radius, and a highlight animation (none/pop/pulse/underline/glow); live-applies to every caption line's detected stress words as you edit
+    │   │           ├── index.js             # Re-exports BrollAnimation, SplitScreenLayout, compute*Style helpers
+    │   │           ├── BrollAnimation.jsx   # B-roll reveal animation + hold-phase drift
+    │   │           ├── SplitScreenLayout.jsx# Main video split-screen placement & parallax drift
+    │   │           └── driftMotion.js       # Shared hold-phase drift constants/formula (mirrored in render.py)
     │   ├── services/
-    │   │   └── api.js               # Centralized REST API client for backend endpoints (incl. setCover)
+    │   │   └── api.js               # Centralized REST API client for backend endpoints
     │   └── stores/
     │       └── editorStore.js       # Zustand state management store for timeline, playback, selection, cover-image save state
     ├── package.json                 # Node dependencies & scripts
@@ -93,6 +109,8 @@ It features word-level speech transcription via Groq Whisper API, dynamic preset
 - **AI Auto-Edit Engine**: Dual-provider architecture: primary OpenRouter (`openai/gpt-4o-mini`) with direct fallback to Google Gemini (`gemini-3.7-flash`).
 - **Stock Media Integration**: Pexels Video API (portrait MP4 filtering, height capping <= 1920p, dual preview/render URL selection) and Pexels Photos API (portrait image search + curated feed) — both power the B-roll Library's Image/Video Search tabs, in addition to the video-only automatic fetch used by AI Auto-Edit.
 - **Rendering Engine**: Server-side FFmpeg filtergraph constructing multi-track overlays (zooms, b-roll, captions via `drawtext`, screen blend overlays, mixed audio tracks via `amix`).
+- **Cloud Rendering Alternative**: Shotstack Cloud Video API integration (`app/shotstack.py`, `app/shotstack_timeline.py`) converting timeline JSON to Shotstack Edit JSON for distributed cloud rendering with webhooks.
+- **Sound & Overlay Subsystems**: Sound Effects catalog registry (`app/sfx/`) and video overlay filter validation manager (`app/overlays/`).
 - **Storage & Database**: Local filesystem storage (`backend/app/uploads/`, `backend/app/renders/`) with JSON database (`db.json`).
 
 ### Frontend
@@ -120,30 +138,24 @@ It features word-level speech transcription via Groq Whisper API, dynamic preset
    - Dual provider engine: OpenRouter (`openai/gpt-4o-mini`) with direct fallback to Google Gemini (`gemini-3.7-flash`).
    - Enforces a **hard validation gate** to filter out overlapping moments, bad timestamps, or invalid zoom scales (`[1.05, 2.0]`).
    - Integrates with the active template via `template_engine.py` to inherit template-specific B-roll reveal animations (`zoom_in`, `slide_down`, `fade_in`, `bounce_in`), layout placement, and zoom scale clamp boundaries.
-   - `mode` query param (`zoom` | `broll`) scopes one call to only that moment type, so the Sidebar's "Auto Zooms" and "Auto B-rolls" boost toggles — and Scenes.jsx's "Magic Zooms"/"Magic B-roll" buttons — never touch each other's track; each toggle's on/off state is derived live from whether any `source: "auto_edit"` item exists on its track, not a separate flag that could drift from reality.
-   - **Downloaded B-roll assets are always returned to the frontend in the same response** that updates the timeline (`assets: [...]` on the `/auto-edit` response), so a newly-placed AI b-roll item's `assetId` is immediately resolvable in the local preview — fixes an earlier bug where the timeline item was correct but pointed at an asset the frontend had never been told about, rendering as a blank layer.
+   - `mode` query param (`zoom` | `broll`) scopes one call to only that moment type, so the Sidebar's "Auto Zooms" and "Auto B-rolls" boost toggles — and Scenes.jsx's "Magic Zooms"/"Magic B-roll" buttons — never touch each other's track.
+   - **Downloaded B-roll assets are always returned to the frontend in the same response** that updates the timeline (`assets: [...]` on the `/auto-edit` response).
 7. **B-roll Library — Image Search / Video Search / Upload Local** (`BrollPicker.jsx`, `pexels.py`, `routers/broll.py`): a redesigned three-tab panel replacing the old single Pexels-video-only search.
-   - **Image Search** and **Video Search** both hit the Pexels API (Photos and Videos respectively), each with its own paginated results grid (thumbnail, duration/type badge, selection ring + checkmark) and numbered pager.
-   - **Upload Local** uploads an image or video straight from the user's device (via the same generic `/upload` endpoint every other asset uses) and treats it as a selectable card identically to a search result.
-   - All three sources converge on one attach call: `POST /projects/{id}/broll/attach` takes either a `downloadUrl` (fresh Pexels pick — downloaded now) or an `assetId` (already-uploaded local file — placed as-is), and always responds with the fully-resolved `{asset, item, timeline}` so the frontend's asset list is synced in the same round trip — no source can produce a blank b-roll layer.
-   - Shared right-side panel: **Placement Target** (start/end + the transcript line it targets), **B-roll Duration** controls (±0.5s stepper, +1/+2/+5s quick-extend, reset-to-scene-length), **Screen Layout** (Full Screen / Top Split / Bottom Split), **Reveal Animation** (None, Slide Down/Up/Left/Right, Fade In, Zoom In, Pop, Wipe Down, Bounce In), a **Preview** button (large lightbox of the exact pick before committing), and **Add to Timeline**.
-   - **Edit an already-attached b-roll from `Scenes.jsx`**: clicking a scene's b-roll indicator when a clip is already attached opens a 3-option dropdown — *Add New B-roll*, *Edit Transition* (inline reveal-animation / layout / speed editor operating on the existing item via `updateItem`), and *Delete B-roll* — instead of always reopening the picker.
-8. **AI Stress Text Highlighter** (`stress_words.py`, `StressHighlightModal.jsx`): automatically detects the most important/"stress" words in each caption line and applies a distinct highlight style to just those words.
-   - **Detection** is a deterministic, offline heuristic (no AI call) — `detect_stress_word_indices` scores each word by whether it's a number, whether it's in a curated intensifier list, whether it's capitalized mid-line (a name/acronym), and a small bonus for longer non-stopword words, then keeps the top-scoring word(s) per line (`maxWordsPerLine`, default 2).
-   - **Enable/disable** (`POST /projects/{id}/captions/stress-highlight`) runs or clears detection across every existing caption item; the Sidebar boost toggle derives its on/off state from whether any caption item actually has stress words assigned, the same "derive from real data" pattern used by Auto Zooms/Auto B-rolls.
-   - **Style editor** (`StressHighlightModal.jsx`, opened via the boost card's Edit button): text color, background/highlight color with a "no background" toggle, stroke on/off with color + thickness, font family/size/weight, normal/italic, highlight padding, corner radius, and a highlight animation (None, Pop, Pulse, Underline, Glow) — applied live to every caption line's detected stress words as each control changes.
-   - **Export parity, with one disclosed gap**: `render.py` builds one `drawtext` filter per word so color, background, stroke, font, and padding all match the live preview exactly in the exported MP4. Corner radius and the highlight animation have no equivalent in ffmpeg's `drawtext` and stay preview-only — the exported highlight is a static (non-rounded, non-animated) box, called out explicitly in the modal's own UI rather than left as a silent mismatch.
-9. **Interactive React Preview & Scenes Panel**:
-   - Multi-track HTML5 video preview (`VideoPreview.jsx`) with synchronized dynamic caption rendering, live zoom scale transforms, template overlay loops, and split-screen duet/reaction layout positioning (`SplitScreenLayout.jsx`).
-   - Centralized Zustand store resolution via `currentTemplate()` helper in `editorStore.js` ensuring safe template metadata resolution and error-free canvas rendering.
-   - Sentence-level transcript scene segmentation view (`Scenes.jsx`) allowing quick manual zoom toggles and targeted B-roll attachment.
-   - **Sidebar tabs stay mounted** (Captions / Edit Scenes / Trim in `Sidebar.jsx`) and are toggled via CSS instead of being unmounted/remounted, so switching tabs is instant and preserves each panel's in-progress state; the shared scroll container resets to the top on every tab change.
-10. **Split-screen B-roll animation, synced with the main video** (`animations/BrollAnimation.jsx`, `animations/SplitScreenLayout.jsx`, `animations/driftMotion.js`, mirrored in `render.py`):
-   - The main video shrinks from fullscreen into its complementary half in sync with the b-roll's own reveal (same start time, duration, easing) instead of hard-cutting to half height the instant the item goes active.
-   - The edge of the main video against the outer frame boundary always stays flush with the screen edge, so there is never a moment of exposed empty space mid-transition — only the edge facing the split boundary advances, which reads as the main video moving in the same direction the b-roll is revealing.
-   - Once fully revealed, both the b-roll and the main video keep drifting slowly in that same direction (a subtle continuous parallax, main video moving at a reduced amplitude relative to the b-roll) instead of freezing solid — timing/easing constants live once in `driftMotion.js` and are mirrored exactly in the FFmpeg export.
-11. **Cover Image capture**: a dedicated "Cover" preview tab lets the user scrub the timeline (including whatever b-roll/split layer is active at that instant) and save the current frame as the project's dashboard thumbnail via `POST /api/projects/{id}/cover`, which reuses the export filtergraph (`render.py`'s `capture_frame`) so the captured frame is pixel-identical to what export would produce at that timestamp.
-12. **Server-Side FFmpeg Exporter**: Background multi-track video renderer generating high-quality MP4 exports using a single FFmpeg filtergraph with zoom punch-ins, B-roll overlays, text drawtext filters, and mixed audio tracks. Template ambient overlays (light leaks/grain) play as short 2–3s bursts once or twice across the video instead of for the full duration (`_overlay_burst_windows` in `routers/templates.py`).
+   - **Image Search** and **Video Search** both hit the Pexels API with paginated results grid and numbered pager.
+   - **Upload Local** uploads an image or video straight from the user's device.
+   - All three sources converge on `POST /projects/{id}/broll/attach` (`downloadUrl` or `assetId`) responding with `{asset, item, timeline}`.
+   - Shared right-side panel: Placement Target, Duration controls, Screen Layout, Reveal Animation, Lightbox Preview, and Add to Timeline.
+   - **Edit attached B-roll from `Scenes.jsx`**: 3-option dropdown — *Add New B-roll*, *Edit Transition*, and *Delete B-roll*.
+8. **AI Stress Text Highlighter** (`stress_words.py`, `StressHighlightModal.jsx`): automatically detects the most important/"stress" words in each caption line using a deterministic offline heuristic and applies distinct text/background/stroke/animation styles.
+9. **Sound FX (SFX) Library** (`SfxPicker.jsx`, `app/sfx/`, `routers/sfx.py`): browse bundled audio clips (switches, swooshes, pops, risers) and attach them to the timeline's `sfx` track with custom start times, duration, and volume scaling.
+10. **Call-To-Action (CTA) Badges** (`CtaPicker.jsx`): select and attach graphic overlay badges and engagement stickers directly to the timeline and preview canvas.
+11. **Split-screen B-roll animation, synced with the main video**: main video shrinks from fullscreen into its complementary half in sync with the b-roll's reveal, followed by continuous parallax hold-phase drift (`driftMotion.js` mirrored in `render.py`).
+12. **Cover Image capture**: scrub the timeline in a dedicated "Cover" preview tab and save the current frame as the dashboard thumbnail via `POST /api/projects/{id}/cover`.
+13. **Dual Export Engine & Preflight Validation** (`ExportPanel.jsx`, `render.py`, `shotstack.py`, `shotstack_timeline.py`, `routers/export.py`):
+    - Export using local multi-track FFmpeg renderer or Shotstack cloud rendering engine.
+    - Export format choices: MP4 (`video/mp4`), WebM (`video/webm`), or animated GIF (`image/gif`).
+    - Export quality presets (`draft`, `standard`, `high`) and custom target frame rates (`24`, `30`, `60` fps).
+    - Preflight dry-run validation (`POST /api/projects/{id}/export/preflight`) to detect any timeline features incompatible with cloud rendering before submitting a job.
 
 ---
 
@@ -162,26 +174,31 @@ It features word-level speech transcription via Groq Whisper API, dynamic preset
 | `POST` | `/api/projects/{id}/transcribe` | Trigger Groq Whisper word-level speech-to-text (supports `language` query param) |
 | `GET` | `/api/projects/{id}/transcript` | Get existing transcript for a project |
 | `POST` | `/api/projects/{id}/generate-captions` | Generate timed caption track items from transcript |
-| `POST` | `/api/projects/{id}/captions/stress-highlight` | Enable/disable the AI Stress Text Highlighter — runs (or clears) stress-word detection across every caption item |
-| `POST` | `/api/projects/{id}/auto-edit` | Execute AI auto-edit analysis & apply edit decisions. Optional `mode=zoom\|broll` scopes it to one moment type; response includes any newly-downloaded B-roll assets so the frontend stays in sync |
+| `POST` | `/api/projects/{id}/captions/stress-highlight` | Enable/disable AI Stress Text Highlighter across caption items |
+| `POST` | `/api/projects/{id}/auto-edit` | Execute AI auto-edit analysis & apply edit decisions (`mode=zoom\|broll`) |
 | `GET` | `/api/templates` | List all preset video templates (optionally filtered by category) |
 | `GET` | `/api/templates/{template_id}` | Get detailed schema for a specific video template |
 | `GET` | `/api/templates/thumbnails/{filename}` | Serve static preview thumbnail images for templates |
 | `GET` | `/api/templates/overlays/{filename}` | Serve static video overlay loops (film grain, light leaks) |
 | `POST` | `/api/templates/reload` | Hot-reload template JSON files from `templates/library/` |
 | `POST` | `/api/projects/{id}/apply-template` | Apply preset video template to project |
-| `GET` | `/api/broll/search` | Search the B-roll Library — `media=video` (default) hits Pexels Videos, `media=image` hits Pexels Photos; supports `query`, `page`, `per_page`, returns `totalPages` for pagination |
-| `POST` | `/api/projects/{id}/broll/attach` | Attach media to the timeline's broll track — pass `downloadUrl` to download a fresh Pexels video/photo, or `assetId` to reuse an already-uploaded local file; always returns `{asset, item, timeline}` |
-| `POST` | `/api/projects/{id}/export` | Trigger background FFmpeg render export job |
+| `GET` | `/api/broll/search` | Search the B-roll Library (`media=video\|image`, `query`, `page`) |
+| `POST` | `/api/projects/{id}/broll/attach` | Attach media to broll track (`downloadUrl` or `assetId`) |
+| `GET` | `/api/sfx` | Fetch bundled sound effects catalog |
+| `POST` | `/api/projects/{id}/sfx/attach` | Attach chosen sound effect clip to timeline |
+| `GET` | `/api/export/engines` | List available rendering engines (Local FFmpeg & Cloud Shotstack) |
+| `POST` | `/api/projects/{id}/export/preflight` | Perform dry-run conversion validation check for Shotstack cloud export |
+| `POST` | `/api/projects/{id}/export` | Trigger background export job (engine=`ffmpeg`\|`shotstack`, format, quality, fps) |
+| `POST` | `/api/shotstack/webhook` | Receive webhook notifications for completed Shotstack cloud renders |
 | `GET` | `/api/renders/{job_id}` | Check status and progress of background rendering job |
-| `GET` | `/api/download/{filename}` | Download final rendered output MP4 file |
+| `GET` | `/api/download/{filename}` | Download final rendered output file |
 
 ---
 
 ## ⚠️ Known Gaps
 
-- **Template thumbnails/overlays are unresolved on disk.** Every preset in `templates/registry.py` / `templates/library/*.json` sets `thumbnailUrl` (e.g. `/api/templates/thumbnails/split_reaction.jpg`) and most set `overlayVideoUrl` (e.g. `/api/templates/overlays/split_reaction.mp4`), and `main.py` mounts `templates/library/thumbnails/` and `templates/library/overlays/` as static dirs to serve them — but neither directory (nor any file in them) currently exists in the repo. Template picker cards and the ambient overlay effect have nothing to actually load until real thumbnail JPGs and overlay MP4s are added at those paths.
-- **AI Stress Text Highlighter's corner radius & highlight animation are preview-only.** `ffmpeg drawtext` has no native rounded-rectangle or per-word animation support, so the exported MP4 renders each stress word's color/background/stroke/font/padding exactly as previewed but as a static, square-cornered box — `StressHighlightModal.jsx` says this explicitly rather than leaving it as a silent preview/export mismatch.
+- **Template thumbnails/overlays are unresolved on disk.** Every preset in `templates/registry.py` / `templates/library/*.json` sets `thumbnailUrl` (e.g. `/api/templates/thumbnails/split_reaction.jpg`) and most set `overlayVideoUrl` (e.g. `/api/templates/overlays/split_reaction.mp4`), and `main.py` mounts `templates/library/thumbnails/` and `templates/library/overlays/` as static dirs to serve them — but neither directory (nor any file in them) currently exists in the repo.
+- **AI Stress Text Highlighter's corner radius & highlight animation are preview-only.** `ffmpeg drawtext` has no native rounded-rectangle or per-word animation support, so the exported MP4 renders each stress word's color/background/stroke/font/padding exactly as previewed but as a static, square-cornered box.
 
 ---
 
@@ -201,6 +218,11 @@ GEMINI_MODEL=gemini-3.7-flash
 
 # Stock Media Library (Pexels API: https://www.pexels.com/api/)
 PEXELS_API_KEY=your_pexels_api_key
+
+# Shotstack Cloud Rendering (Optional cloud MP4 rendering engine)
+SHOTSTACK_API_KEY=your_shotstack_api_key
+SHOTSTACK_ENV=stage # stage = free sandbox (watermarked), v1 = production
+SHOTSTACK_CALLBACK_BASE= # Optional public HTTPS base URL for render completion webhooks
 ```
 
 ---
@@ -229,3 +251,11 @@ npm install
 npm run dev
 ```
 Frontend runs at `http://localhost:5173`.
+
+---
+
+## 📜 Documentation & Reference Files
+- [`README.md`](file:///d:/anna/akash_db/files%20%282%29/README.md): Quick start guide and workspace directory overview.
+- [`FFMPEG.txt`](file:///d:/anna/akash_db/files%20%282%29/FFMPEG.txt): Comprehensive FFmpeg technical reference, version details, filtergraph pipelines, and encoding profiles.
+- [`ALGORITHM.txt`](file:///d:/anna/akash_db/files%20%282%29/ALGORITHM.txt): Core mathematical formulas, algorithms, validation gates, and filtergraph rendering pipelines.
+- [`.gitignore`](file:///d:/anna/akash_db/files%20%282%29/.gitignore): Comprehensive Git ignore rules for root, backend, and frontend dependencies and secrets.

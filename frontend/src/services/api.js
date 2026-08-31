@@ -83,11 +83,19 @@ export const api = {
     form.append('file', file)
     return fetch(`${BASE}/projects/${id}/upload`, { method: 'POST', body: form }).then(j)
   },
-  startExport: (id, { format = 'mp4', quality = 'standard', frameRate } = {}) => {
-    const params = { format, quality }
+  // `engine` picks the renderer: 'ffmpeg' (default, local, every format)
+  // or 'shotstack' (cloud, mp4 only). The Shotstack API key lives only in
+  // backend/.env and is never sent to or read by the browser.
+  startExport: (id, { format = 'mp4', quality = 'standard', frameRate, engine = 'ffmpeg' } = {}) => {
+    const params = { format, quality, engine }
     if (frameRate) params.frameRate = frameRate
     return fetch(`${BASE}/projects/${id}/export?${new URLSearchParams(params)}`, { method: 'POST' }).then(j)
   },
+  listExportEngines: () => fetch(`${BASE}/export/engines`).then(j),
+  // Dry-run the Shotstack validation so the panel can warn about anything
+  // that won't survive the conversion before a render is actually spent.
+  exportPreflight: (id) =>
+    fetch(`${BASE}/projects/${id}/export/preflight`, { method: 'POST' }).then(j),
   getExportStatus: (jobId) => fetch(`${BASE}/renders/${jobId}`).then(j),
   downloadUrl: (path) => path,
   assetUrl: (asset) => asset?.servedPath || '',

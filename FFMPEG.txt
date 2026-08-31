@@ -1,0 +1,233 @@
+================================================================================
+🎬 AI SHORT-FORM VIDEO EDITOR — FFMPEG TECHNICAL REFERENCE & ARCHITECTURE GUIDE
+================================================================================
+
+1. EXECUTIVE SUMMARY & OVERVIEW
+--------------------------------------------------------------------------------
+This project utilizes FFmpeg as its primary local video processing and rendering
+engine. FFmpeg powers audio extraction for speech transcription, metadata
+inspection, real-time thumbnail frame captures, and complete server-side multi-
+track composition (camera punch-ins, B-roll overlays, animated reveals, ambient
+video loops, styled drawtext captions, and mixed audio tracks).
+
+Core Architecture Principle:
+"AI decides. Timeline stores. Renderer executes. Preview and export consume the
+same timeline model."
+
+
+2. SYSTEM FFMPEG VERSION & RUNTIME ENVIRONMENT
+--------------------------------------------------------------------------------
+* Installed Binary: FFmpeg 8.1.1-full_build (www.gyan.dev)
+* Compiler: gcc 15.2.0 (Rev13, Built by MSYS2 project)
+* Core Libraries:
+  - libavutil      60. 26.101 / 60. 26.101
+  - libavcodec     62. 28.101 / 62. 28.101
+  - libavformat    62. 12.101 / 62. 12.101
+  - libavdevice    62.  3.101 / 62.  3.101
+  - libavfilter    11. 14.101 / 11. 14.101
+  - libswscale      9.  5.101 /  9.  5.101
+  - libswresample   6.  3.101 /  6.  3.101
+
+* Critical Configuration Flags & Enabled Modules:
+  --enable-gpl --enable-version3 --enable-static --disable-w32threads
+  --enable-libx264 --enable-libx265 --enable-libvpx --enable-libaom
+  --enable-libfreetype --enable-libfribidi --enable-libharfbuzz --enable-libass
+  --enable-fontconfig --enable-whisper --enable-cuda-llvm --enable-nvenc
+  --enable-nvdec --enable-amf --enable-vulkan --enable-libopus --enable-libmp3lame
+
+
+3. EXECUTABLE RESOLUTION & CONFIGURATION
+--------------------------------------------------------------------------------
+The backend dynamically resolves the FFmpeg and FFprobe binaries at runtime:
+
+1. Binary Override (`FFMPEG_BINARY`):
+   - Defined in `backend/.env` or system environment.
+   - Allows pointing the backend directly to a custom/static FFmpeg build without
+     modifying the system PATH.
+   - Implementation: `_configured_ffmpeg()` in `backend/app/render.py`.
+2. Sibling FFprobe Resolution:
+   - Checks the directory containing the resolved FFmpeg binary for `ffprobe.exe`
+     or `ffprobe` before falling back to system PATH.
+   - Implementation: `_configured_ffprobe()` in `backend/app/render.py`.
+
+
+4. AUDIO EXTRACTION & SPEECH TRANSCRIPTION PIPELINE (`transcribe.py`)
+--------------------------------------------------------------------------------
+To prepare uploaded user video for Groq Whisper transcription, FFmpeg extracts
+a normalized, low-bandwidth audio stream:
+
+Command:
+  ffmpeg -y -i <source_media_path> -ac 1 -ar 16000 -vn <output_path.wav>
+
+* Parameters:
+  - `-y`: Overwrite output file without confirmation.
+  - `-ac 1`: Downmix audio to single-channel mono.
+  - `-ar 16000`: Resample audio to 16,000 Hz (Groq Whisper native sample rate).
+  - `-vn`: Strip all video streams to minimize processing time and memory usage.
+
+
+5. MEDIA METADATA PROBING (`upload.py` / `render.py`)
+--------------------------------------------------------------------------------
+FFprobe is used upon file upload to inspect media dimensions, frame rate, duration,
+and codecs:
+
+Command:
+  ffprobe -v error -show_entries format=duration:stream=width,height,codec_name,r_frame_rate,nb_frames -of json <filepath>
+
+* Extracted Properties:
+  - Video dimensions: Width (W) and Height (H)
+  - Duration: In seconds (float precision)
+  - Frame Rate: Evaluated rational `r_frame_rate` (e.g. 30000/1001 -> 29.97 fps)
+  - Codecs: Video (e.g. h264, hevc, vp9) & Audio (e.g. aac, opus, mp3)
+
+
+6. MULTI-TRACK FILTERGRAPH RENDERING ENGINE (`render.py`)
+--------------------------------------------------------------------------------
+The renderer compiles the entire multi-track Timeline JSON into a single
+monolithic FFmpeg filtergraph execution.
+
+A. Aspect Ratio & Canvas Normalization
+   All inputs are scaled and cropped to match the target canvas resolution
+   (e.g., 1080x1920 for 9:16 vertical short-form):
+   `scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,fps=30,format=rgba`
+
+B. Camera Punch-in Zooms
+   Zooms apply dynamic crop and scale expressions bounded within time windows:
+   - Scale range: [1.05x to 2.0x]
+   - Uses `scale=eval=frame` and `pad=eval=frame` or crop interpolation:
+     `scale=w=iw*scale_factor:h=ih*scale_factor,crop=1080:1920`
+     activated via `enable='between(t, start, end)'`.
+
+C. B-Roll Overlays & Reveal Animations
+   B-roll tracks support Fullscreen, Top Split, and Bottom Split modes with reveal
+   animations:
+   - Reveal animations: `fade_in`, `zoom_in`, `slide_down`, `slide_up`,
+     `slide_left`, `slide_right`, `pop`, `wipe_down`, `bounce_in`.
+   - Constant Dimension Canvas Rule:
+     FFmpeg segfaults or throws "Error reinitializing filters!" if frame sizes
+     change dynamically mid-stream. Reveal animations are executed via ALPHA
+     masks or canvas padding, maintaining constant layer dimensions (W x H).
+
+D. Hold-Phase Parallax Drift (`driftMotion.js` parity)
+   Once revealed, both B-roll and main video layers drift slowly in the same
+   direction to maintain visual momentum. The mathematical formula in `render.py`
+   mirrors `driftMotion.js`:
+   `drift_offset = amplitude * (1 - exp(-(t - reveal_end) / tau))`
+
+E. Luma Masks for Alpha Merging (`_luma_mask`)
+   `alphamerge` in FFmpeg reads alpha from the second input's GRAYSCALE intensity,
+   not from its alpha channel:
+   `color=c=white:s=WxH:r=fps,format=gray[src];[src]geq=lum='<expression>'[mask]`
+   `[layer][mask]alphamerge[layer_masked]`
+
+F. Ambient Template Video Overlays
+   Ambient loops (film grain, light leaks) are composited using screen blending:
+   `[base][overlay]blend=all_mode='screen':all_opacity=0.35[blended]`
+   Played in short 2–3s burst windows rather than full video length.
+
+G. Styled Captions & Drawtext Engine
+   Word-level captions are rendered as individual `drawtext` filters chained together:
+   - Colors: Converted from CSS hex to FFmpeg syntax (`0xRRGGBB` or `0xRRGGBB@alpha`).
+   - Font Selection: Resolves system TTF/OTF font paths with fontconfig XML fallback.
+   - Text Escaping: Special characters (`\`, `'`, `%`, `:`, `,`) are escaped.
+   - Stress Text Highlight: Emphasizes detected key words with distinct box background,
+     border stroke (`bordercolor`, `borderw`), and font weights.
+
+H. Multi-Track Audio Mixing & Ducking
+   - Main voice track audio is normalized.
+   - Sound FX (`sfx`) are delayed via `adelay=<ms>|<ms>` and volume adjusted.
+   - Background music is ducked during speech segments.
+   - All audio streams merged via:
+     `amix=inputs=N:duration=first:dropout_transition=2`
+
+I. Cover Image Frame Capture
+   Single frame capture reusing the exact export filtergraph at a specific timestamp:
+   `ffmpeg -y ... -filter_complex <chain> -map [video_out] -ss {at_time} -frames:v 1 output.jpg`
+
+
+7. EXPORT ENCODING PROFILES, FORMATS & QUALITY MODES
+--------------------------------------------------------------------------------
+The exporter supports MP4, WebM, and animated GIF exports with selectable quality
+and frame rates:
+
+A. Format: MP4 (Default)
+   - Video: `-c:v libx264 -pix_fmt yuv420p -movflags +faststart`
+   - Audio: `-c:a aac -b:a 192k`
+   - Presets & CRF:
+     * Draft:    `-preset ultrafast -crf 28`
+     * Standard: `-preset veryfast -crf 23`
+     * High:     `-preset medium   -crf 18`
+
+B. Format: WebM
+   - Video: `-c:v libvpx-vp9 -b:v 0`
+   - Audio: `-c:a libopus -b:a 128k`
+   - Presets & CRF:
+     * Draft:    `-crf 35 -deadline realtime -cpu-used 4`
+     * Standard: `-crf 30 -deadline good     -cpu-used 2`
+     * High:     `-crf 24 -deadline good     -cpu-used 1`
+
+C. Format: Animated GIF
+   - Uses two-pass palette generation for color accuracy without banding:
+     `[v]split[v1][v2];[v1]palettegen=stats_mode=diff[p];[v2][p]paletteuse=dither=bayer:bayer_scale=5`
+
+D. Frame Rates:
+   Selectable: 24 fps (cinematic), 30 fps (standard), 60 fps (smooth motion).
+
+
+8. VERSION COMPATIBILITY & SYNTAX PROBING
+--------------------------------------------------------------------------------
+FFmpeg builds vary significantly across versions (6.x, 7.x, 8.x). The codebase
+features dynamic compatibility probes:
+
+A. Script Option Probing (`_filter_graph_file_option`):
+   - FFmpeg 7.0+ / 8.x introduced `-/filter_complex FILE` and deprecated
+     `-filter_complex_script FILE`.
+   - The engine runs a throwaway 1-frame probe at startup to determine the exact
+     filtergraph file option supported by the active binary.
+
+B. Mandatory Filter Availability (`_has_required_filters`):
+   - The engine validates that the candidate binary contains required filters:
+     `drawtext`, `geq`, `alphamerge`, `overlay`.
+   - `drawtext` requires FFmpeg compiled with `libharfbuzz` and `libfreetype`.
+
+
+9. CRASH DETECTION, WINDOWS NTSTATUS CODES & RESILIENCE LADDER
+--------------------------------------------------------------------------------
+When FFmpeg encounters a fatal crash, Windows NTSTATUS codes are captured and
+translated for clear diagnostics:
+
+* Exit Codes & Meanings:
+  - 3221225477 (0xC0000005): ACCESS_VIOLATION — Memory crash inside FFmpeg.
+  - 3221225725 (0xC00000FD): STACK_OVERFLOW — Expression nesting too deep.
+  - 3221226505 (0xC0000409): STACK_BUFFER_OVERRUN — Stack corrupted / aborted.
+  - 3221225620 (0xC0000094): INTEGER_DIVIDE_BY_ZERO — Mathematical crash.
+
+* Multi-Step Fallback Ladder:
+  1. Standard execution using primary configured binary.
+  2. Single-Thread Retry: If multithreading crashes, retries with `-threads 1`.
+  3. Secondary Fallback Binary: If primary binary segfaults, attempts retry using
+     secondary binary (e.g. `imageio-ffmpeg` static binary if installed).
+  4. Diagnostic Tool: `backend/diagnose_export.py` runs a ladder of progressively
+     complex FFmpeg commands to isolate the exact failing filter or input stream.
+
+
+10. CHEAT SHEET: KEY CLI COMMANDS USED BY PROJECT
+--------------------------------------------------------------------------------
+1. Audio Extraction (Transcription):
+   ffmpeg -y -i input.mp4 -ac 1 -ar 16000 -vn audio_16k.wav
+
+2. Media Probe:
+   ffprobe -v error -show_entries format=duration:stream=width,height,codec_name,r_frame_rate -of json input.mp4
+
+3. Complex Multi-Track Export (via filter file):
+   ffmpeg -y -hide_banner -loglevel error -/filter_complex script.ffscript \
+     -map [video_out] -map [audio_out] -r 30 -c:v libx264 -preset veryfast \
+     -crf 23 -c:a aac -b:a 192k -movflags +faststart output.mp4
+
+4. Thumbnail Snapshot:
+   ffmpeg -y -hide_banner -loglevel error -/filter_complex script.ffscript \
+     -map [video_out] -ss 2.5 -frames:v 1 cover.jpg
+
+5. Run Export Diagnostics:
+   python backend/diagnose_export.py <project_id>
+================================================================================

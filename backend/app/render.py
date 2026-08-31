@@ -33,6 +33,7 @@ from .models import Timeline, TimelineItem, Asset
 from .overlays import plan_for_item
 from .templates.registry import resolve_overlay_path
 from .sfx import resolve_sfx_path
+from .font_manager import resolve_font, escape_fontfile_path
 
 
 def _resolve_bundled_source(source_path: str | None) -> str | None:
@@ -272,11 +273,15 @@ def _estimate_text_width(text: str, font_size: float) -> float:
 
 
 def _resolve_font_variant(family: str | None, weight: int | None, style: str | None) -> str | None:
-    """fontconfig family strings accept trailing style keywords ('Inter
-    Bold', 'Inter Bold Italic') and fuzzy-match them against whatever
-    variants of that family are actually installed, falling back to the
-    nearest match rather than failing — same tolerant resolution
-    _fontconfig_env's docstring describes for the family name itself."""
+    """DEPRECATED — no longer called by the rendering pipeline.
+
+    Previously used to build fontconfig family-name strings like
+    'Inter Bold Italic' for drawtext's font= option. Replaced by
+    font_manager.resolve_font() + fontfile= to avoid the
+    0xC0000005 ACCESS_VIOLATION crash caused by fontconfig on
+    FFmpeg 8.x / Windows. Kept here only so external callers (e.g.
+    old test scripts) don't break; do NOT add new callers.
+    """
     if not family:
         return family
     suffix = ""
@@ -341,8 +346,14 @@ def _build_stress_caption_filters(item, W: int, H: int, current: str, item_idx: 
         if is_stress:
             fontsize = stress_font_size
             fontcolor = item.stressColor or item.color
-            family = _resolve_font_variant(
-                item.stressFontFamily or item.fontFamily, item.stressFontWeight, item.stressFontStyle,
+            # Resolve stress font: explicit stressFontFamily first, then
+            # fall back to the base caption family. resolve_font handles
+            # weight/style normalisation and falls back to Inter if the
+            # family isn't in the local registry.
+            font_path = resolve_font(
+                item.stressFontFamily or item.fontFamily,
+                item.stressFontWeight or getattr(item, "fontWeight", None),
+                item.stressFontStyle or "normal",
             )
             bg = item.stressBackgroundColor  # None = deliberately no background
             padding = item.stressPadding if item.stressPadding is not None else 12
@@ -354,7 +365,13 @@ def _build_stress_caption_filters(item, W: int, H: int, current: str, item_idx: 
         else:
             fontsize = base_font_size
             fontcolor = item.color
-            family = item.fontFamily
+            # Base caption font — always resolve to a local file so we
+            # never rely on fontconfig (which crashes FFmpeg 8.x on Windows).
+            font_path = resolve_font(
+                item.fontFamily,
+                getattr(item, "fontWeight", None),
+                "normal",
+            )
             bg = item.backgroundColor
             padding = 18
             if item.strokeWidth and item.strokeColor:
@@ -372,8 +389,11 @@ def _build_stress_caption_filters(item, W: int, H: int, current: str, item_idx: 
             f"x={cursor_x:.1f}",
             f"y={y}",
         ]
-        if family:
-            parts.append(f"font='{family}'")
+        # fontfile= bypasses fontconfig entirely — this is the fix for the
+        # 0xC0000005 ACCESS_VIOLATION crash on FFmpeg 8.1.1 / Windows.
+        # escape_fontfile_path converts backslashes and escapes ':' for
+        # FFmpeg's filter-argument parser.
+        parts.append(f"fontfile='{escape_fontfile_path(font_path)}'")
         if bg:
             parts.append(f"box=1:boxcolor={_css_to_ffmpeg_color(bg)}:boxborderw={padding}")
         if stroke_width and stroke_color:
@@ -946,8 +966,15 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
             f"x=(w-text_w)/2",
             f"y={y}",
         ]
-        if item.fontFamily:
-            parts.append(f"font='{item.fontFamily}'")
+        # fontfile= bypasses fontconfig — fix for 0xC0000005 on FFmpeg 8.x.
+        # Always resolve even when fontFamily is None: resolve_font() falls
+        # back to Inter Regular in that case, so we always get a valid path.
+        _cap_font_path = resolve_font(
+            item.fontFamily,
+            getattr(item, "fontWeight", None),
+            getattr(item, "fontStyle", None) or "normal",
+        )
+        parts.append(f"fontfile='{escape_fontfile_path(_cap_font_path)}'")
         if item.backgroundColor:
             parts.append(f"box=1:boxcolor={_css_to_ffmpeg_color(item.backgroundColor)}:boxborderw=18")
         if item.strokeWidth and item.strokeColor:
@@ -995,8 +1022,13 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
             f"y={y}",
             f"box=1:boxcolor={_css_to_ffmpeg_color(item.backgroundColor or '#7C3AED')}:boxborderw=24",
         ]
-        if item.fontFamily:
-            parts.append(f"font='{item.fontFamily}'")
+        # fontfile= bypasses fontconfig — fix for 0xC0000005 on FFmpeg 8.x.
+        _cta_font_path = resolve_font(
+            item.fontFamily,
+            getattr(item, "fontWeight", None),
+            getattr(item, "fontStyle", None) or "normal",
+        )
+        parts.append(f"fontfile='{escape_fontfile_path(_cta_font_path)}'")
 
         fade_dur = min(0.18, item.duration / 2)
         parts.append(

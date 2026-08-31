@@ -29,6 +29,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from app import db                                    # noqa: E402
 from app.models import Timeline, Asset                # noqa: E402
 from app import render                                # noqa: E402
+from app import font_manager                          # noqa: E402
 
 
 def _crash_hint(code: int) -> str:
@@ -135,27 +136,41 @@ def main() -> int:
          "-an", "-f", "webm", os.path.join(tempfile.gettempdir(), "diag_vp9_nomt.webm")],
     )
 
-    # drawtext / fontconfig — the exact font strings the graph will use.
-    # These are the RESOLVED variants ("Poppins Bold Italic"), not the bare
-    # family, because that resolved string is what fontconfig actually has
-    # to match and is the thing that could fail.
-    fonts = set()
-    for track in timeline.tracks:
-        if track.type not in ("caption", "cta"):
-            continue
-        for it in track.items:
-            fonts.add(it.fontFamily or "Inter")
-            if it.stressWordIndices:
-                fonts.add(render._resolve_font_variant(
-                    it.stressFontFamily or it.fontFamily or "Inter",
-                    it.stressFontWeight, it.stressFontStyle) or "Inter")
-    fonts = sorted(f for f in fonts if f)
-    for font in fonts:
-        results[f"drawtext font {font!r}"] = run(
-            f"5. drawtext with font {font!r}",
+    # fontfile= font resolution — test the new local font system.
+    # We test the three most common combinations: Regular, Bold, and Italic.
+    # resolve_font() returns the absolute path; we verify the FILE exists
+    # before even asking ffmpeg to use it (so a missing font file shows a
+    # clear Python error rather than an opaque crash).
+    print("\n  --- Font resolution check (before ffmpeg) ---")
+    font_test_cases = [
+        ("Inter", 400, "normal",  "Inter Regular"),
+        ("Inter", 700, "normal",  "Inter Bold"),
+        ("Inter", 400, "italic",  "Inter Italic"),
+        ("Inter", 700, "italic",  "Inter Bold Italic"),
+    ]
+    resolved_fonts: dict[str, str] = {}
+    for fam, wt, sty, label in font_test_cases:
+        try:
+            path = font_manager.resolve_font(fam, wt, sty)
+            import os as _os
+            if _os.path.isfile(path):
+                resolved_fonts[label] = path
+                print(f"  [RESOLVED] {label}: {path}")
+            else:
+                print(f"  [MISSING]  {label}: path resolved but file absent: {path}")
+                results[f"font resolve {label}"] = False
+        except Exception as e:
+            print(f"  [ERROR]    {label}: {e}")
+            results[f"font resolve {label}"] = False
+
+    # Now test each resolved font inside a real ffmpeg drawtext call.
+    for label, path in resolved_fonts.items():
+        escaped = font_manager.escape_fontfile_path(path)
+        results[f"drawtext fontfile {label}"] = run(
+            f"5. drawtext fontfile='{escaped}' ({label})",
             ["-i", main_path, *short,
-             "-vf", f"drawtext=text='Sample 90%':expansion=none:fontsize=48:fontcolor=white:"
-                    f"x=10:y=10:font='{font}'",
+             "-vf", f"drawtext=text='Test 90%':expansion=none:fontsize=48:fontcolor=white:"
+                     f"x=10:y=10:fontfile='{escaped}'",
              "-an", *null_out],
         )
 

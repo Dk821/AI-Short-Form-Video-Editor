@@ -59,6 +59,13 @@ def put_job(job_id: str, job: dict):
         _save(data)
 
 
+def list_jobs():
+    """All job records. Used by the Shotstack webhook to map an incoming
+    render id back to the job this server started for it."""
+    with _lock:
+        return list(_load()["jobs"].values())
+
+
 def delete_project(project_id: str) -> None:
     with _lock:
         data = _load()

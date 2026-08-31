@@ -1,0 +1,45 @@
+{
+  "_comment": "Font registry for the local FFmpeg fontfile= rendering system. Each key is a font family name (matching the frontend's fontFamily field). Values map weight (as string) to {normal, italic} relative paths under backend/fonts/. Add new families by dropping their .ttf/.otf files under backend/fonts/<FamilyName>/ and extending this JSON.",
+  "Inter": {
+    "100": {
+      "normal": "Inter/Inter_24pt-Thin.ttf",
+      "italic": "Inter/Inter_24pt-ThinItalic.ttf"
+    },
+    "200": {
+      "normal": "Inter/Inter_24pt-ExtraLight.ttf",
+      "italic": "Inter/Inter_24pt-ExtraLightItalic.ttf"
+    },
+    "300": {
+      "normal": "Inter/Inter_24pt-Light.ttf",
+      "italic": "Inter/Inter_24pt-LightItalic.ttf"
+    },
+    "400": {
+      "normal": "Inter/Inter_24pt-Regular.ttf",
+      "italic": "Inter/Inter_24pt-Italic.ttf"
+    },
+    "500": {
+      "normal": "Inter/Inter_24pt-Medium.ttf",
+      "italic": "Inter/Inter_24pt-MediumItalic.ttf"
+    },
+    "600": {
+      "normal": "Inter/Inter_24pt-SemiBold.ttf",
+      "italic": "Inter/Inter_24pt-SemiBoldItalic.ttf"
+    },
+    "700": {
+      "normal": "Inter/Inter_24pt-Bold.ttf",
+      "italic": "Inter/Inter_24pt-BoldItalic.ttf"
+    },
+    "800": {
+      "normal": "Inter/Inter_24pt-ExtraBold.ttf",
+      "italic": "Inter/Inter_24pt-ExtraBoldItalic.ttf"
+    },
+    "900": {
+      "normal": "Inter/Inter_24pt-Black.ttf",
+      "italic": "Inter/Inter_24pt-BlackItalic.ttf"
+    }
+  },
+  "Poppins": {},
+  "Roboto": {},
+  "Montserrat": {},
+  "Oswald": {}
+}
