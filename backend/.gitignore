@@ -1,6 +1,7 @@
 # Virtual environment
 venv/
 env/
+.venv/
 
 # Python cache
 __pycache__/
@@ -8,9 +9,12 @@ __pycache__/
 *$py.class
 .pytest_cache/
 .coverage
+.mypy_cache/
+.ruff_cache/
 
 # Secrets
 .env
+!.env.example
 
 # Runtime data & media files
 app/uploads/*
@@ -18,3 +22,20 @@ app/uploads/*
 app/renders/*
 !app/renders/.gitkeep
 app/db.json
+
+# Desktop runtime configs & logs
+settings.json
+logs/
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Scratch scripts & temporary test renders
+scratch_*.py
+*.png
+*.jpg
+!app/templates/library/thumbnails/*
+*.bak*
+*.tmp

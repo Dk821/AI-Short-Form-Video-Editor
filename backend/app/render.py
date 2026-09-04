@@ -29,11 +29,13 @@ import subprocess
 import tempfile
 from typing import Dict, List, Optional
 
+from . import paths
 from .models import Timeline, TimelineItem, Asset
 from .overlays import plan_for_item
 from .templates.registry import resolve_overlay_path
 from .sfx import resolve_sfx_path
 from .font_manager import resolve_font, escape_fontfile_path
+from . import caption_layout
 
 
 def _resolve_bundled_source(source_path: str | None) -> str | None:
@@ -135,7 +137,10 @@ def _configured_ffmpeg() -> str:
     override = (os.environ.get("FFMPEG_BINARY") or "").strip().strip('"')
     if override and os.path.isfile(override):
         return override
-    return "ffmpeg"
+    # Otherwise ask paths.py, which knows about the copy bundled inside the
+    # packaged Windows app (resources/ffmpeg/ffmpeg.exe) and falls back to
+    # PATH exactly as this function used to.
+    return paths.ffmpeg_path()
 
 
 @functools.lru_cache(maxsize=1)
@@ -153,7 +158,7 @@ def _ffprobe_exe() -> str:
         )
         if os.path.isfile(sibling):
             return sibling
-    return "ffprobe"
+    return paths.ffprobe_path()
 
 
 # Filters this renderer cannot build a graph without. Worth checking on any
@@ -300,115 +305,104 @@ def _caption_y_expr(position: str, height: int) -> str:
     return f"h-{int(height * 0.14)}-text_h"  # bottom (default)
 
 
-def _build_stress_caption_filters(item, W: int, H: int, current: str, item_idx: int) -> tuple[list[str], str]:
-    """One drawtext filter PER WORD instead of the single whole-line
-    drawtext the normal caption path uses — the only way to give specific
-    words their own background/color/font/stroke, since a single drawtext
-    call has exactly one fontcolor/box for its whole string. x offsets are
-    pre-computed in Python with _estimate_text_width and baked in as
-    literal numbers (not an ffmpeg expression) since there's no way to
-    read one drawtext filter's rendered width from a later, separate
-    filter in the same chain. Only called for a line that actually has
-    stress words (see the caption loop below) — every other line keeps
-    the cheaper, exact single-drawtext path untouched."""
-    words = (item.text or "").split(" ")
-    stress_set = set(item.stressWordIndices or [])
+def _build_caption_filters(item, W: int, H: int, current: str, item_idx: int) -> tuple[list[str], str]:
+    """Builds one drawtext filter PER WORD for one caption line, positioned
+    by the canonical caption_layout.layout_caption() engine — see that
+    module's docstring. This is now the ONLY caption code path (it used to
+    be two: a single whole-line drawtext for plain captions, and this
+    per-word builder only for lines with detected stress words). Unifying
+    them is what makes multi-line wrapping possible at all: a single
+    drawtext call can only ever produce one line with FFmpeg's native
+    x=(w-text_w)/2 centering, so word-level placement is required
+    regardless of whether any word is actually styled differently — see
+    Section 20 of the caption-typography-parity fix this replaced.
+
+    x/y are baked in as literal numbers (not ffmpeg expressions) since
+    caption_layout.py already resolved the exact same layout (wrap points,
+    per-line baseline, per-word position) that VideoPreview.jsx's
+    captionLayout.js computes in the browser from the same TimelineItem —
+    there is nothing left for ffmpeg's own text_w/text_h to contribute."""
+    layout = caption_layout.layout_caption(item, W, H)
     end = item.start + item.duration
-    y = _caption_y_expr(item.position or "bottom", H)
-
-    base_font_size = item.fontSize or 64
-    stress_font_size = item.stressFontSize or base_font_size
-    space_w = _estimate_text_width(" ", base_font_size)
-
-    # Pass 1: figure out each word's effective size, then the whole line's
-    # estimated width so it can be centered as a block, matching the base
-    # path's `x=(w-text_w)/2` (here computed ahead of time in Python
-    # instead of read from ffmpeg's own text_w at render time).
-    sizes = [stress_font_size if wi in stress_set else base_font_size for wi in range(len(words))]
-    widths = [_estimate_text_width(w, sizes[wi]) for wi, w in enumerate(words)]
-    total_width = sum(widths) + space_w * max(0, len(words) - 1)
-    cursor_x = (W - total_width) / 2
-
-    stress_stroke_on = (
-        item.stressStrokeEnabled if item.stressStrokeEnabled is not None
-        else bool(item.strokeWidth and item.strokeColor)
-    )
 
     new_filters: list[str] = []
-    for wi, word in enumerate(words):
-        if not word:
-            cursor_x += space_w
-            continue
-        is_stress = wi in stress_set
-        text = _escape_drawtext(word)
-        nxt = f"cap{item_idx}w{wi}"
-
-        if is_stress:
-            fontsize = stress_font_size
-            fontcolor = item.stressColor or item.color
-            # Resolve stress font: explicit stressFontFamily first, then
-            # fall back to the base caption family. resolve_font handles
-            # weight/style normalisation and falls back to Inter if the
-            # family isn't in the local registry.
-            font_path = resolve_font(
-                item.stressFontFamily or item.fontFamily,
-                item.stressFontWeight or getattr(item, "fontWeight", None),
-                item.stressFontStyle or "normal",
+    pad = caption_layout.WHOLE_LINE_BG_PADDING
+    for line in layout.lines:
+        if item.backgroundColor:
+            # item.backgroundColor is ONE continuous pill behind the WHOLE
+            # line (matching the old single-drawtext plain-caption path's
+            # box=1) — not a per-word box, which is what a per-word
+            # drawtext's own box=1 would give it. drawtext's box option
+            # can only size itself to that one call's own text, so a
+            # whole-line box needs the explicit drawbox filter instead,
+            # drawn before this line's word filters so the text renders
+            # on top of it. No rounded corners — ffmpeg's box/drawbox have
+            # none, same limitation the old box=1 path already had.
+            box_x = int(round(line.left - pad))
+            box_y = int(round(line.top - pad))
+            box_w = int(round(line.width + 2 * pad))
+            box_h = int(round((line.bottom - line.top) + 2 * pad))
+            nxt = f"cap{item_idx}lbg{len(new_filters)}"
+            new_filters.append(
+                f"[{current}]drawbox=x={box_x}:y={box_y}:w={box_w}:h={box_h}:"
+                f"color={_css_to_ffmpeg_color(item.backgroundColor)}:t=fill:"
+                f"enable='between(t,{item.start},{end})'[{nxt}]"
             )
-            bg = item.stressBackgroundColor  # None = deliberately no background
-            padding = item.stressPadding if item.stressPadding is not None else 12
-            if stress_stroke_on:
-                stroke_color = item.stressStrokeColor or item.strokeColor or "#000000"
-                stroke_width = item.stressStrokeWidth or item.strokeWidth or 1
-            else:
-                stroke_color = stroke_width = None
-        else:
-            fontsize = base_font_size
-            fontcolor = item.color
-            # Base caption font — always resolve to a local file so we
-            # never rely on fontconfig (which crashes FFmpeg 8.x on Windows).
-            font_path = resolve_font(
-                item.fontFamily,
-                getattr(item, "fontWeight", None),
-                "normal",
-            )
-            bg = item.backgroundColor
-            padding = 18
-            if item.strokeWidth and item.strokeColor:
-                stroke_color, stroke_width = item.strokeColor, item.strokeWidth
-            else:
-                stroke_color = stroke_width = None
+            current = nxt
+        for pw in line.words:
+            w = pw.word
+            if not w.text:
+                # A double-space artifact from `text.split(' ')` — its
+                # width (0) and gap were already folded into the layout's
+                # x positions for every word after it; nothing to draw.
+                continue
 
-        parts = [
-            f"text='{text}'",
-            # Literal text only — see _escape_drawtext for why this is
-            # required rather than optional.
-            "expansion=none",
-            f"fontsize={fontsize}",
-            f"fontcolor={fontcolor}",
-            f"x={cursor_x:.1f}",
-            f"y={y}",
-        ]
-        # fontfile= bypasses fontconfig entirely — this is the fix for the
-        # 0xC0000005 ACCESS_VIOLATION crash on FFmpeg 8.1.1 / Windows.
-        # escape_fontfile_path converts backslashes and escapes ':' for
-        # FFmpeg's filter-argument parser.
-        parts.append(f"fontfile='{escape_fontfile_path(font_path)}'")
-        if bg:
-            parts.append(f"box=1:boxcolor={_css_to_ffmpeg_color(bg)}:boxborderw={padding}")
-        if stroke_width and stroke_color:
-            parts.append(f"borderw={stroke_width}:bordercolor={stroke_color}")
-        if (item.animation or "fade") != "none":
-            fade_dur = min(0.18, item.duration / 2)
-            parts.append(
-                f"alpha='if(lt(t,{item.start}+{fade_dur}),(t-{item.start})/{fade_dur},"
-                f"if(gt(t,{end}-{fade_dur}),({end}-t)/{fade_dur},1))'"
-            )
-        parts.append(f"enable='between(t,{item.start},{end})'")
+            text = _escape_drawtext(w.text)
+            nxt = f"cap{item_idx}w{len(new_filters)}"
 
-        new_filters.append(f"[{current}]drawtext={':'.join(parts)}[{nxt}]")
-        current = nxt
-        cursor_x += widths[wi] + space_w
+            parts = [
+                f"text='{text}'",
+                # Literal text only — see _escape_drawtext for why this is
+                # required rather than optional.
+                "expansion=none",
+                f"fontsize={int(round(w.font_size))}",
+                # CSS #RRGGBB / #RRGGBBAA → FFmpeg 0xRRGGBB / 0xRRGGBB@alpha.
+                # Passing a raw '#...' string to fontcolor is silently
+                # mis-parsed by FFmpeg (it treats '#' as a comment
+                # introducer in some filter contexts).
+                f"fontcolor={_css_to_ffmpeg_color(w.color or '#FFFFFF')}",
+                f"x={pw.x:.1f}",
+                f"y={pw.y:.1f}",
+            ]
+            # fontfile= bypasses fontconfig entirely — the fix for the
+            # 0xC0000005 ACCESS_VIOLATION crash on FFmpeg 8.1.1 / Windows.
+            # w.font_path is the exact file caption_layout.py measured
+            # this word's width and ascent/descent against, so the glyphs
+            # FFmpeg actually draws match the metrics the layout was
+            # computed from — not a second, possibly different, lookup.
+            parts.append(f"fontfile='{escape_fontfile_path(w.font_path)}'")
+            if w.background_color:
+                parts.append(
+                    f"box=1:boxcolor={_css_to_ffmpeg_color(w.background_color)}:"
+                    f"boxborderw={w.padding}"
+                )
+            if w.stroke_width and w.stroke_color:
+                # bordercolor must also be converted — raw '#RRGGBB' is not
+                # a valid FFmpeg color in bordercolor context.
+                parts.append(
+                    f"borderw={w.stroke_width}:"
+                    f"bordercolor={_css_to_ffmpeg_color(str(w.stroke_color))}"
+                )
+            if (item.animation or "fade") != "none":
+                fade_dur = min(0.18, item.duration / 2)
+                parts.append(
+                    f"alpha='if(lt(t,{item.start}+{fade_dur}),(t-{item.start})/{fade_dur},"
+                    f"if(gt(t,{end}-{fade_dur}),({end}-t)/{fade_dur},1))'"
+                )
+            parts.append(f"enable='between(t,{item.start},{end})'")
+
+            new_filters.append(f"[{current}]drawtext={':'.join(parts)}[{nxt}]")
+            current = nxt
 
     return new_filters, current
 
@@ -929,10 +923,11 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
                 )
         current = nxt
 
-    # Captions via drawtext. Style fields (font/color/stroke/background/
-    # animation) come from the applied template's CaptionStyle — see
-    # templates/schema.py — with sane fallbacks for hand-added captions
-    # that never went through a template.
+    # Captions via drawtext — one unified, canonical-layout-driven path for
+    # every line (plain or stress-highlighted). Style fields (font/color/
+    # stroke/background/animation) come from the applied template's
+    # CaptionStyle — see templates/schema.py — with sane fallbacks for
+    # hand-added captions that never went through a template.
     caption_items: List[TimelineItem] = caption_track.items if caption_track else []
     for i, item in enumerate(caption_items):
         if item.hidden:
@@ -942,58 +937,13 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
             # re-enabling needs no re-generation. See models.py's `hidden`.
             continue
 
-        if item.stressWordIndices:
-            # "AI Stress Text Highlighter" — this line has detected words
-            # that need their own color/background/font, which a single
-            # drawtext call can't give a substring of its own text. See
-            # _build_stress_caption_filters.
-            stress_filters, current = _build_stress_caption_filters(item, W, H, current, i)
-            filters.extend(stress_filters)
-            continue
-
-        text = _escape_drawtext(item.text or "")
-        end = item.start + item.duration
-        y = _caption_y_expr(item.position or "bottom", H)
-        nxt = f"cap{i}"
-
-        parts = [
-            f"text='{text}'",
-            # Literal text only — see _escape_drawtext for why this is
-            # required rather than optional.
-            "expansion=none",
-            f"fontsize={item.fontSize}",
-            f"fontcolor={item.color}",
-            f"x=(w-text_w)/2",
-            f"y={y}",
-        ]
-        # fontfile= bypasses fontconfig — fix for 0xC0000005 on FFmpeg 8.x.
-        # Always resolve even when fontFamily is None: resolve_font() falls
-        # back to Inter Regular in that case, so we always get a valid path.
-        _cap_font_path = resolve_font(
-            item.fontFamily,
-            getattr(item, "fontWeight", None),
-            getattr(item, "fontStyle", None) or "normal",
-        )
-        parts.append(f"fontfile='{escape_fontfile_path(_cap_font_path)}'")
-        if item.backgroundColor:
-            parts.append(f"box=1:boxcolor={_css_to_ffmpeg_color(item.backgroundColor)}:boxborderw=18")
-        if item.strokeWidth and item.strokeColor:
-            parts.append(f"borderw={item.strokeWidth}:bordercolor={item.strokeColor}")
-
-        # Fade is the one animation style every template's `animation`
-        # maps to at render time (pop/karaoke/slide_up render as fade
-        # server-side; the richer per-word motion is a browser-preview-only
-        # approximation — see VideoPreview.jsx).
-        if (item.animation or "fade") != "none":
-            fade_dur = min(0.18, item.duration / 2)
-            parts.append(
-                f"alpha='if(lt(t,{item.start}+{fade_dur}),(t-{item.start})/{fade_dur},"
-                f"if(gt(t,{end}-{fade_dur}),({end}-t)/{fade_dur},1))'"
-            )
-
-        parts.append(f"enable='between(t,{item.start},{end})'")
-        filters.append(f"[{current}]drawtext={':'.join(parts)}[{nxt}]")
-        current = nxt
+        # _build_caption_filters (see caption_layout.py) computes real
+        # multi-line word-wrap + baseline-aligned per-word positions for
+        # EVERY caption line — the same canonical layout VideoPreview.jsx's
+        # captionLayout.js runs in the browser — whether or not this line
+        # has any detected stress words.
+        cap_filters, current = _build_caption_filters(item, W, H, current, i)
+        filters.extend(cap_filters)
 
     # CTA pill overlays. Rendered the same way as captions (drawtext with
     # its own box=1 background) since ffmpeg's drawtext has no native pill/
@@ -1017,24 +967,29 @@ def _build_video_filtergraph(timeline: Timeline, assets: Dict[str, Asset]):
             # required rather than optional.
             "expansion=none",
             f"fontsize={item.fontSize or 42}",
-            f"fontcolor={item.color or '#FFFFFF'}",
+            # CSS → FFmpeg color. raw '#...' strings are not valid FFmpeg
+            # color syntax inside drawtext filter arguments.
+            f"fontcolor={_css_to_ffmpeg_color(item.color or '#FFFFFF')}",
             "x=(w-text_w)/2",
             f"y={y}",
             f"box=1:boxcolor={_css_to_ffmpeg_color(item.backgroundColor or '#7C3AED')}:boxborderw=24",
         ]
         # fontfile= bypasses fontconfig — fix for 0xC0000005 on FFmpeg 8.x.
+        # TimelineItem has `fontWeight` (int) but no separate `fontStyle` field.
         _cta_font_path = resolve_font(
             item.fontFamily,
-            getattr(item, "fontWeight", None),
-            getattr(item, "fontStyle", None) or "normal",
+            item.fontWeight,
+            "normal",
         )
         parts.append(f"fontfile='{escape_fontfile_path(_cta_font_path)}'")
 
-        fade_dur = min(0.18, item.duration / 2)
-        parts.append(
-            f"alpha='if(lt(t,{item.start}+{fade_dur}),(t-{item.start})/{fade_dur},"
-            f"if(gt(t,{end}-{fade_dur}),({end}-t)/{fade_dur},1))'"
-        )
+        # CTA always fades (respects item.animation if set; defaults to fade).
+        if (item.animation or "fade") != "none":
+            fade_dur = min(0.18, item.duration / 2)
+            parts.append(
+                f"alpha='if(lt(t,{item.start}+{fade_dur}),(t-{item.start})/{fade_dur},"
+                f"if(gt(t,{end}-{fade_dur}),({end}-t)/{fade_dur},1))'"
+            )
         parts.append(f"enable='between(t,{item.start},{end})'")
         filters.append(f"[{current}]drawtext={':'.join(parts)}[{nxt}]")
         current = nxt
@@ -1195,7 +1150,15 @@ def _run_ffmpeg(cmd_prefix: List[str], filter_complex: str, cmd_suffix: List[str
     with tempfile.NamedTemporaryFile("w", suffix=".ffscript", delete=False, encoding="utf-8") as f:
         f.write(filter_complex)
         script_path = f.name
+    # Debug: set RENDER_DEBUG=1 to see the full filtergraph in the server log.
+    # Very useful for verifying drawtext color/fontfile params are correct.
+    if os.environ.get("RENDER_DEBUG"):
+        # Print each filter on its own line for readability.
+        print("[render:DEBUG] filtergraph:")
+        for seg in filter_complex.split(";"):
+            print(f"  {seg.strip()}")
     try:
+
         env = {**os.environ, **_fontconfig_env()}
         primary = _configured_ffmpeg()
 
@@ -1216,9 +1179,15 @@ def _run_ffmpeg(cmd_prefix: List[str], filter_complex: str, cmd_suffix: List[str
 
         last = None
         for exe, extra, label in attempts:
-            cmd = [exe, *extra, *cmd_prefix[1:],
+            cmd = [exe, "-nostdin", *extra, *cmd_prefix[1:],
                    _filter_graph_file_option(exe), script_path, *cmd_suffix]
-            proc = subprocess.run(cmd, capture_output=True, text=True, env=env)
+            proc = subprocess.run(
+                cmd,
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                env=env,
+            )
             if proc.returncode == 0:
                 if label != "default":
                     print(

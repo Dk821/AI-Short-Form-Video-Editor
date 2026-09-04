@@ -1,10 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Sparkles, X } from 'lucide-react'
+import useFontFamilies from '../../../lib/useFontFamilies'
+import { resolveOverlayFont } from '../../../lib/captionLayout'
 
-// Keep in sync with Sidebar.jsx's own FONTS/WEIGHTS — same duplication
-// pattern LayoutPicker.jsx already uses for BrollPicker's layout list,
-// rather than threading a shared constants import through for two lists.
-const FONTS = ['Inter', 'Montserrat', 'Roboto', 'Poppins', 'Open Sans', 'Lato', 'Oswald', 'Space Grotesk']
 const WEIGHT_OPTIONS = [
   { label: 'Regular', value: 400 },
   { label: 'Medium', value: 500 },
@@ -53,11 +51,10 @@ function SegmentedControl({ options, value, onChange }) {
           key={opt.value ?? opt}
           type="button"
           onClick={() => onChange(opt.value ?? opt)}
-          className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
-            value === (opt.value ?? opt)
-              ? 'bg-primary text-white shadow-purpleGlow'
-              : 'text-slate-400 hover:text-slate-200'
-          }`}
+          className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${value === (opt.value ?? opt)
+            ? 'bg-primary text-white shadow-purpleGlow'
+            : 'text-slate-400 hover:text-slate-200'
+            }`}
         >
           {opt.label ?? opt}
         </button>
@@ -77,11 +74,37 @@ function SegmentedControl({ options, value, onChange }) {
  * no-draft-step convention as RevealAnimationModal.
  */
 export default function StressHighlightModal({ value, onChange, onClose }) {
+  // Dynamic — see useFontFamilies.js. backend/fonts/registry.json is the
+  // single source of truth; there is no hardcoded FONTS list here any more.
+  const FONTS = useFontFamilies()
   const [lastBgColor, setLastBgColor] = useState(value.stressBackgroundColor || '#FACC15')
   const [lastStrokeColor, setLastStrokeColor] = useState(value.stressStrokeColor || '#000000')
 
+  // Live-sample font — resolved and loaded the SAME way the real stress
+  // word will be (caption_layout.py's resolve_words(), via the same
+  // per-file FontFace mechanism captions/CTA already use — see
+  // resolveOverlayFont in captionLayout.js). Previously this preview set
+  // a literal CSS font-family string (e.g. "'Poppins', sans-serif") with
+  // no matching FontFace ever registered for most families, so it always
+  // rendered in the browser's generic fallback font regardless of which
+  // family was actually selected.
+  const [previewFont, setPreviewFont] = useState(null)
+  useEffect(() => {
+    let cancelled = false
+    setPreviewFont(null)
+    resolveOverlayFont(
+      value.stressFontFamily || 'Inter',
+      value.stressFontWeight || 900,
+      value.stressFontStyle || 'normal',
+    ).then((font) => {
+      if (!cancelled) setPreviewFont(font)
+    })
+    return () => { cancelled = true }
+  }, [value.stressFontFamily, value.stressFontWeight, value.stressFontStyle])
+
   const hasBackground = value.stressBackgroundColor != null
-  const strokeOn = !!value.stressStrokeEnabled
+  const strokeWidth = value.stressStrokeWidth != null ? value.stressStrokeWidth : (value.stressStrokeEnabled ? 2 : 0)
+  const strokeOn = !!value.stressStrokeEnabled && strokeWidth > 0
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md p-4 transition-all">
@@ -107,20 +130,21 @@ export default function StressHighlightModal({ value, onChange, onClose }) {
 
         <div className="flex-1 overflow-y-auto px-6 py-5 flex flex-col gap-4">
           {/* Live sample */}
-          <div className="flex items-center justify-center rounded-2xl bg-dark-panel3 py-6">
-            <span className="text-sm font-black text-slate-100">
+          <div className="flex min-h-[80px] w-full items-center justify-center overflow-hidden rounded-2xl bg-dark-panel3 px-4 py-6">
+            <span className="max-w-full text-center text-sm font-black leading-relaxed text-slate-100 break-words">
               This is a{' '}
               <span
                 className={`rounded-md px-1.5 py-0.5 stress-anim-${value.stressAnimation || 'none'}`}
                 style={{
                   color: value.stressColor || '#0F172A',
                   backgroundColor: hasBackground ? value.stressBackgroundColor : 'transparent',
-                  fontFamily: `'${value.stressFontFamily || 'Inter'}', sans-serif`,
-                  fontWeight: value.stressFontWeight || 900,
-                  fontStyle: value.stressFontStyle || 'normal',
+                  fontFamily: previewFont?.cssFamily || `'${value.stressFontFamily || 'Inter'}', sans-serif`,
+                  fontWeight: previewFont ? 400 : (value.stressFontWeight || 900),
+                  fontStyle: previewFont ? 'normal' : (value.stressFontStyle || 'normal'),
+                  fontSize: value.stressFontSize ? `${Math.max(14, Math.round(value.stressFontSize / 3.0))}px` : undefined,
                   padding: `${(value.stressPadding ?? 12) / 2}px ${value.stressPadding ?? 12}px`,
                   borderRadius: `${value.stressCornerRadius ?? 10}px`,
-                  WebkitTextStroke: strokeOn ? `${Math.max(1, Math.round((value.stressStrokeWidth ?? 2) / 2))}px ${value.stressStrokeColor || '#000000'}` : 'none',
+                  WebkitTextStroke: strokeOn && strokeWidth > 0 ? `${strokeWidth}px ${value.stressStrokeColor || lastStrokeColor || '#000000'}` : 'none',
                   paintOrder: 'stroke fill',
                 }}
               >
@@ -162,7 +186,18 @@ export default function StressHighlightModal({ value, onChange, onClose }) {
           <Row label="Stroke / outline">
             <button
               type="button"
-              onClick={() => onChange({ stressStrokeEnabled: !strokeOn })}
+              onClick={() => {
+                if (strokeOn) {
+                  onChange({ stressStrokeEnabled: false, stressStrokeWidth: 0 })
+                } else {
+                  const restoredWidth = (value.stressStrokeWidth && value.stressStrokeWidth > 0) ? value.stressStrokeWidth : 2
+                  onChange({
+                    stressStrokeEnabled: true,
+                    stressStrokeWidth: restoredWidth,
+                    stressStrokeColor: value.stressStrokeColor || lastStrokeColor || '#000000',
+                  })
+                }
+              }}
               className={`toggle-switch ${strokeOn ? 'active' : ''}`}
             />
           </Row>
@@ -176,18 +211,30 @@ export default function StressHighlightModal({ value, onChange, onClose }) {
           </Row>
 
           <Row label="Stroke thickness">
-            <div className="flex items-center gap-2 w-40">
+            <div className="flex items-center gap-2 w-44">
               <input
                 type="range"
-                min={1}
+                min={0}
                 max={8}
                 step={1}
-                disabled={!strokeOn}
-                value={value.stressStrokeWidth ?? 2}
-                onChange={(e) => onChange({ stressStrokeWidth: Number(e.target.value) })}
-                className="w-full accent-primary disabled:opacity-40"
+                value={strokeOn ? strokeWidth : 0}
+                onChange={(e) => {
+                  const val = Number(e.target.value)
+                  if (val === 0) {
+                    onChange({ stressStrokeWidth: 0, stressStrokeEnabled: false })
+                  } else {
+                    onChange({
+                      stressStrokeWidth: val,
+                      stressStrokeEnabled: true,
+                      stressStrokeColor: value.stressStrokeColor || lastStrokeColor || '#000000',
+                    })
+                  }
+                }}
+                className="w-full accent-primary"
               />
-              <span className="text-[11px] font-bold text-slate-400 w-6 text-right">{value.stressStrokeWidth ?? 2}</span>
+              <span className="text-[11px] font-bold text-slate-400 w-10 text-right">
+                {strokeOn && strokeWidth > 0 ? `${strokeWidth}px` : 'None'}
+              </span>
             </div>
           </Row>
 

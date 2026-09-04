@@ -21,6 +21,7 @@ import {
 } from 'lucide-react'
 import { api } from '../services/api'
 import CreateProjectModal from '../components/dashboard/CreateProjectModal'
+import SettingsModal from '../components/dashboard/SettingsModal'
 
 function formatDate(iso) {
   if (!iso) return ''
@@ -42,7 +43,7 @@ const NAV_ITEMS = [
   { id: 'thumbnails', label: 'AI Thumbnails', Icon: ImageIcon },
 ]
 
-function DashboardSidebar() {
+function DashboardSidebar({ onOpenSettings }) {
   const [activeNav, setActiveNav] = useState('home')
 
   return (
@@ -63,7 +64,14 @@ function DashboardSidebar() {
         {NAV_ITEMS.map(({ id, label, Icon }) => (
           <button
             key={id}
-            onClick={() => setActiveNav(id)}
+            onClick={() => {
+              setActiveNav(id)
+              // The desktop build needs somewhere to enter API keys (they
+              // can no longer live in backend/.env inside a read-only
+              // install directory). This nav entry already existed and is
+              // exactly where a user would look for it.
+              if (id === 'api') onOpenSettings()
+            }}
             className={`flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-xs font-bold transition-all ${
               activeNav === id
                 ? 'bg-primary text-white shadow-purpleGlow'
@@ -217,6 +225,7 @@ export default function Dashboard() {
   const navigate = useNavigate()
   const [projects, setProjects] = useState(null)
   const [createOpen, setCreateOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [error, setError] = useState(null)
   const [searchQuery, setSearchQuery] = useState('')
 
@@ -249,7 +258,7 @@ export default function Dashboard() {
 
   return (
     <div className="flex h-screen bg-dark-bg text-slate-100 font-body">
-      <DashboardSidebar />
+      <DashboardSidebar onOpenSettings={() => setSettingsOpen(true)} />
 
       <div className="flex flex-1 flex-col min-w-0">
         {/* Header */}
@@ -351,6 +360,7 @@ export default function Dashboard() {
       </div>
 
       <CreateProjectModal open={createOpen} onClose={() => setCreateOpen(false)} />
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   )
 }

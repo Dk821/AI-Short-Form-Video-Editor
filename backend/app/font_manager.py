@@ -31,11 +31,12 @@ import json
 import os
 from typing import Optional
 
-# Locate backend/fonts/ relative to this file (app/font_manager.py →
-# app/ → backend/fonts/).
-_FONTS_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "fonts")
-)
+# Locate the bundled fonts/ directory. In the dev checkout that is
+# backend/fonts/; in a PyInstaller build __file__ is not a real directory
+# and the fonts are unpacked elsewhere, so paths.py resolves it.
+from . import paths
+
+_FONTS_DIR = str(paths.FONTS_DIR)
 _REGISTRY_PATH = os.path.join(_FONTS_DIR, "registry.json")
 
 # Default fallback used when every other resolution attempt fails.
@@ -96,63 +97,102 @@ def resolve_font(
     The resolved path is always logged when it differs from the request,
     so font substitutions are never silent.
     """
+    return _resolve(family, weight, style)["path"]
+
+
+_FALLBACK_REL = "Inter/Inter_24pt-Regular.ttf"
+
+
+def _resolve(
+    family: Optional[str], weight: Optional[int], style: Optional[str]
+) -> dict:
+    """Shared implementation behind resolve_font() and resolve_font_info().
+
+    resolve_font() only ever needed the final path; resolve_font_info()
+    (added for the canonical caption-layout API — see caption_layout.py)
+    also needs to know exactly which (family, weight, style) the ladder
+    actually landed on, since that snapped/fallen-back combo — not the
+    originally requested one — is what the frontend must register its
+    FontFace descriptor as, or a fallback here could silently disagree
+    with what render.py's FFmpeg export drew.
+
+    Returns {"path", "relPath", "family", "weight", "style"} — the last
+    three describing what was ACTUALLY used, not what was requested.
+    """
     registry = _load_registry()
     req_family = (family or _DEFAULT_FAMILY).strip()
     req_weight = int(weight) if weight else _DEFAULT_WEIGHT
-    req_style  = (style or _DEFAULT_STYLE).lower()
+    req_style = (style or _DEFAULT_STYLE).lower()
 
-    def _try_family(fam: str, w: int, s: str) -> Optional[str]:
-        """Look up one (family, weight, style) combination; return abs path
-        or None if not in registry / file missing."""
+    def _try_family(fam: str, w: int, s: str) -> Optional[dict]:
+        """Look up one (family, weight, style) combination; return the
+        resolved info dict, or None if not in registry / file missing."""
         family_map: dict = registry.get(fam, {})
         if not family_map:
             return None
         weight_str = str(w)
         style_map: dict = family_map.get(weight_str, {})
+        resolved_weight = w
         if not style_map:
             # Snap to nearest available weight.
             avail = [int(k) for k in family_map if k.isdigit()]
             if not avail:
                 return None
-            nearest = _snap_weight(avail, w)
-            style_map = family_map.get(str(nearest), {})
-        rel = style_map.get(s) or style_map.get("normal")
+            resolved_weight = _snap_weight(avail, w)
+            style_map = family_map.get(str(resolved_weight), {})
+        resolved_style = s if style_map.get(s) else "normal"
+        rel = style_map.get(resolved_style)
         if not rel:
             return None
         path = _abs(rel)
         if os.path.isfile(path):
-            return path
+            return {"path": path, "relPath": rel, "family": fam, "weight": resolved_weight, "style": resolved_style}
         print(f"[font_manager] WARNING: registered font file missing: {path}")
         return None
 
     # Try requested family first.
-    path = _try_family(req_family, req_weight, req_style)
-    if path:
-        return path
+    info = _try_family(req_family, req_weight, req_style)
+    if info:
+        return info
 
     if req_family != _DEFAULT_FAMILY:
         print(
             f"[font_manager] font '{req_family}' weight={req_weight} "
             f"style={req_style} not available — falling back to {_DEFAULT_FAMILY}"
         )
-        path = _try_family(_DEFAULT_FAMILY, req_weight, req_style)
-        if path:
-            return path
+        info = _try_family(_DEFAULT_FAMILY, req_weight, req_style)
+        if info:
+            return info
 
     # Absolute last resort: hard-coded Inter Regular.
-    fallback = _abs(f"Inter/Inter_24pt-Regular.ttf")
+    fallback = _abs(_FALLBACK_REL)
     if os.path.isfile(fallback):
         print(
             f"[font_manager] WARNING: using hard-coded fallback "
             f"Inter_24pt-Regular.ttf"
         )
-        return fallback
+        return {"path": fallback, "relPath": _FALLBACK_REL, "family": _DEFAULT_FAMILY, "weight": 400, "style": "normal"}
 
     raise FileNotFoundError(
         f"[font_manager] CRITICAL: cannot locate any usable font file. "
         f"Ensure backend/fonts/Inter/ contains Inter_24pt-Regular.ttf. "
         f"Registry: {_REGISTRY_PATH}"
     )
+
+
+def resolve_font_info(
+    family: Optional[str] = None,
+    weight: Optional[int] = None,
+    style: Optional[str] = None,
+) -> dict:
+    """Like resolve_font(), but returns the full resolution result instead
+    of just the path: {"path", "relPath", "family", "weight", "style"}.
+    caption_layout.py uses this so the canonical layout it hands to both
+    render.py and the /api/captions/layout endpoint carries the file
+    FFmpeg will actually read (relPath, servable via /api/fonts/<relPath>)
+    alongside the resolved family/weight/style the frontend should
+    register its FontFace under — never the raw, pre-fallback request."""
+    return _resolve(family, weight, style)
 
 
 def escape_fontfile_path(path: str) -> str:
@@ -174,6 +214,19 @@ def escape_fontfile_path(path: str) -> str:
     # Escape the drive-letter colon, e.g. "C:" → "C\\:".
     escaped = fwd.replace(":", "\\:")
     return escaped
+
+
+def list_registry() -> dict:
+    """Read-only snapshot of the font registry (minus the `_comment` key),
+    for routers/fonts.py's GET /api/font-manifest — the manifest the
+    frontend's captionLayout.js fetches once at startup so it can register
+    a FontFace for every (family, weight, style) this exact same
+    registry.json maps to a file for, and run the SAME fallback ladder
+    resolve_font() below runs, on the same data. One JSON file, two
+    languages reading it, instead of a hand-duplicated family list in the
+    frontend that could silently drift from what FFmpeg actually has."""
+    registry = _load_registry()
+    return {k: v for k, v in registry.items() if not k.startswith("_")}
 
 
 def validate_registry() -> None:

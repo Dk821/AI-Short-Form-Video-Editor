@@ -32,6 +32,7 @@ import Scenes from './Scenes'
 import RevealAnimationModal from './animations/RevealAnimationModal'
 import { REVEAL_ANIMATIONS } from './animations/RevealAnimationPicker'
 import StressHighlightModal from './animations/StressHighlightModal'
+import useFontFamilies from '../../lib/useFontFamilies'
 
 function Toggle({ active, onToggle, disabled }) {
   return (
@@ -93,7 +94,6 @@ function SegmentedControl({ options, value, onChange }) {
   )
 }
 
-const FONTS = ['Inter', 'Montserrat', 'Roboto', 'Poppins', 'Open Sans', 'Lato', 'Oswald', 'Space Grotesk']
 const WEIGHTS = ['Regular', 'Medium', 'Semibold', 'Bold', 'Heavy']
 
 const EDIT_TABS = [
@@ -159,7 +159,8 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
     selectedItemId,
     setCurrentTime,
     runAutoEdit,
-    isAutoEditing,
+    isAutoEditingBroll,
+    isAutoEditingZoom,
     autoEditResult,
     splitCaptionItem,
     mergeCaptionPair,
@@ -181,6 +182,9 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
   const [themeName, setThemeName] = useState('Custom Theme')
   const [isRenamingTheme, setIsRenamingTheme] = useState(false)
   const [fontFamily, setFontFamily] = useState('Inter')
+  // Dynamic — see useFontFamilies.js. backend/fonts/registry.json is the
+  // single source of truth; there is no hardcoded FONTS list here any more.
+  const FONTS = useFontFamilies()
   const [fontWeight, setFontWeight] = useState('Bold')
   const [uppercase, setUppercase] = useState(true)
   const [fontSize, setFontSize] = useState(28)
@@ -1395,15 +1399,14 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
             title="AI Auto Zooms"
             description="Auto-zoom key talking moments"
             active={zoomsEnabled}
-            disabled={isAutoEditing}
+            disabled={isAutoEditingZoom}
             onToggle={async () => {
-              // Blocks a second click while a runAutoEdit request is still
-              // in flight — without this, toggling rapidly (or toggling
-              // Zooms while a B-roll request is running, since both share
-              // one isAutoEditing flag, same as the Scenes.jsx Magic
-              // buttons) could resolve out of order and leave the switch
-              // showing one state while the timeline has the other.
-              if (isAutoEditing) return
+              // Blocks a second click while THIS toggle's own runAutoEdit
+              // request is still in flight — isAutoEditingZoom is
+              // independent of isAutoEditingBroll, so toggling Zooms while
+              // a B-roll request is running (here or in Scenes.jsx's Magic
+              // B-rolls) no longer cross-reacts with this switch.
+              if (isAutoEditingZoom) return
               if (zoomsEnabled) {
                 // Turning it back off removes only what THIS feature added
                 // (source: "auto_edit") — any zoom the user placed by hand
@@ -1426,9 +1429,9 @@ function CaptionsTab({ mode, setMode, onTabChange }) {
             title="AI Auto B-rolls"
             description="Swap moments with stock B-roll footage"
             active={brollEnabled}
-            disabled={isAutoEditing}
+            disabled={isAutoEditingBroll}
             onToggle={async () => {
-              if (isAutoEditing) return
+              if (isAutoEditingBroll) return
               if (brollEnabled) {
                 // Same as Zooms above — clears only the AI-added b-roll
                 // clips, not anything manually attached from Scenes.jsx.

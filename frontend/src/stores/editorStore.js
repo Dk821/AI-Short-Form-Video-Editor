@@ -19,9 +19,6 @@ export const useEditorStore = create((set, get) => ({
   exportFormat: 'mp4', // 'mp4' | 'webm' | 'gif' — the export panel's 3 format options
   exportQuality: 'standard', // 'draft' | 'standard' | 'high'
   exportFrameRate: null, // null = match the project's own fps; otherwise 24 | 30 | 60
-  exportEngine: 'ffmpeg', // 'ffmpeg' (local, all formats) | 'shotstack' (cloud, mp4)
-  exportEngines: null,    // populated from /api/export/engines
-  exportPreflight: null,  // { ok, errors, warnings } from the Shotstack dry-run
   isSavingProject: false, // Toolbar's explicit "Save" button — see saveProject()
   saveError: null,
   status: 'idle', // idle | loading | ready | error
@@ -68,7 +65,15 @@ export const useEditorStore = create((set, get) => ({
   isTranscribing: false,
   transcribeError: null,
   isGeneratingCaptions: false,
-  isAutoEditing: false,
+  // Independent per-mode flags — NOT one shared isAutoEditing boolean.
+  // runAutoEdit('broll') / runAutoEdit('zoom') are two functionally
+  // separate actions (Scenes.jsx's Magic B-rolls/Magic Zooms buttons,
+  // and Sidebar.jsx's AI Auto B-rolls/AI Auto Zooms boost toggles), and
+  // each must only show its OWN loading state — a single shared flag
+  // used to make both buttons spin whenever either one (or even the
+  // mode-less "AI Hook Title" run) was in flight.
+  isAutoEditingBroll: false,
+  isAutoEditingZoom: false,
   autoEditResult: null,
   autoEditError: null,
   isSettingStressHighlight: false,
@@ -177,7 +182,14 @@ export const useEditorStore = create((set, get) => ({
   // (Scenes.jsx) or the "AI Auto Zooms" boost toggle (Sidebar.jsx) never
   // also drops fresh b-roll on the timeline, and vice versa.
   async runAutoEdit(mode) {
-    set({ isAutoEditing: true, autoEditError: null, autoEditResult: null })
+    // Only 'broll'/'zoom' have their own visible loading state (the two
+    // buttons this guards); a mode-less full run (the "AI Hook Title"
+    // button) has never shown a spinner of its own and still doesn't —
+    // this only decides which (if either) of the two per-mode flags this
+    // particular call flips, never a third, general-purpose flag that
+    // could once again make unrelated buttons react to each other.
+    const flagKey = mode === 'broll' ? 'isAutoEditingBroll' : mode === 'zoom' ? 'isAutoEditingZoom' : null
+    set({ ...(flagKey ? { [flagKey]: true } : {}), autoEditError: null, autoEditResult: null })
     try {
       const result = await api.runAutoEdit(get().projectId, mode)
       // Magic B-roll downloads real Pexels footage server-side and the
@@ -194,10 +206,10 @@ export const useEditorStore = create((set, get) => ({
           ? [...s.assets, ...newAssets.filter((a) => !s.assets.some((existing) => existing.id === a.id))]
           : s.assets,
         autoEditResult: result.decisions,
-        isAutoEditing: false,
+        ...(flagKey ? { [flagKey]: false } : {}),
       }))
     } catch (e) {
-      set({ isAutoEditing: false, autoEditError: String(e) })
+      set({ ...(flagKey ? { [flagKey]: false } : {}), autoEditError: String(e) })
     }
   },
 
@@ -793,43 +805,19 @@ export const useEditorStore = create((set, get) => ({
   setExportFrameRate(frameRate) {
     set({ exportFrameRate: frameRate })
   },
-  async setExportEngine(engine) {
-    set({ exportEngine: engine, exportPreflight: null })
-    // Shotstack can't reproduce every construct the editor supports, so run
-    // the backend's dry-run validation as soon as it's chosen and surface
-    // the result before the user commits to a render.
-    if (engine === 'shotstack') {
-      try {
-        set({ exportPreflight: await api.exportPreflight(get().projectId) })
-      } catch (e) {
-        set({ exportPreflight: { ok: false, errors: [String(e)], warnings: [] } })
-      }
-    }
-  },
-  async loadExportEngines() {
-    try {
-      set({ exportEngines: await api.listExportEngines() })
-    } catch {
-      // Non-fatal: the panel just shows FFmpeg only.
-      set({ exportEngines: null })
-    }
-  },
-
   // Called by the export panel's "Save" button: persists the currently
   // selected format/quality/frame rate as the project's export settings,
   // saves the timeline (same as every other edit), and immediately starts
   // rendering with those settings.
   async startExport(opts = {}) {
-    const { projectId, exportFormat, exportQuality, exportFrameRate, exportEngine } = get()
-    const engine = opts.engine || exportEngine
-    // Shotstack renders MP4 only; fall back rather than letting the request 400.
-    const format = engine === 'shotstack' ? 'mp4' : (opts.format || exportFormat)
+    const { projectId, exportFormat, exportQuality, exportFrameRate } = get()
+    const format = opts.format || exportFormat
     const quality = opts.quality || exportQuality
     const frameRate = opts.frameRate !== undefined ? opts.frameRate : exportFrameRate
-    set({ exportFormat: format, exportQuality: quality, exportFrameRate: frameRate, exportEngine: engine })
+    set({ exportFormat: format, exportQuality: quality, exportFrameRate: frameRate })
     await get().persist()
     try {
-      const job = await api.startExport(projectId, { format, quality, frameRate: frameRate || undefined, engine })
+      const job = await api.startExport(projectId, { format, quality, frameRate: frameRate || undefined })
       set({ exportJob: job })
       const poll = async () => {
         try {
@@ -845,9 +833,9 @@ export const useEditorStore = create((set, get) => ({
       }
       poll()
     } catch (e) {
-      // A rejected submit (bad engine, missing key, unsupported format) never
-      // produces a job record, so synthesise one so the panel can show why.
-      set({ exportJob: { status: 'failed', error: String(e), engine } })
+      // A rejected submit (unsupported format/quality) never produces a
+      // job record, so synthesise one so the panel can show why.
+      set({ exportJob: { status: 'failed', error: String(e) } })
     }
   },
 }))

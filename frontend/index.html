@@ -4,8 +4,15 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Clipforge — AI Short-Form Video Editor</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+    <!-- Inter + Space Grotesk are loaded locally instead of from Google
+         Fonts — see src/main.jsx's preloadCoreFonts() and
+         src/lib/captionLayout.js. This keeps the desktop build fully
+         offline-capable (no runtime dependency on Google's CDN) and, more
+         importantly, guarantees every caption using these families
+         resolves to the EXACT SAME font file backend/app/render.py's
+         FFmpeg export reads via font_manager.resolve_font() — a
+         CDN-hosted copy of "the same" font is not guaranteed to be
+         byte-identical to the bundled one. -->
   </head>
   <body class="bg-ink text-slate-100">
     <div id="root"></div>

@@ -1,5 +1,6 @@
 {
   "_comment": "Font registry for the local FFmpeg fontfile= rendering system. Each key is a font family name (matching the frontend's fontFamily field). Values map weight (as string) to {normal, italic} relative paths under backend/fonts/. Add new families by dropping their .ttf/.otf files under backend/fonts/<FamilyName>/ and extending this JSON.",
+  "_comment_weight_coverage": "Genuine upstream typeface limits, not bugs — font_manager's nearest-weight snap ladder is the correct, honest fallback for these, not a gap to silently paper over: Lato ships only {100,300,400,700,900} (no true 500/600 Medium/SemiBold cut exists upstream — Google Fonts has no Lato variable font); Oswald and Space Grotesk are static-only sets topping out at 700 (no 800/900, no italic at all — Space Grotesk's upstream variable font's own wght axis caps at 700); Open Sans tops out at 800 (no 900). Every other family (Inter, Montserrat, Roboto, Poppins) has real files for the full 400/500/600/700/900 set requested + italic.",
   "Inter": {
     "100": {
       "normal": "Inter/Inter_24pt-Thin.ttf",
@@ -38,8 +39,164 @@
       "italic": "Inter/Inter_24pt-BlackItalic.ttf"
     }
   },
-  "Poppins": {},
-  "Roboto": {},
-  "Montserrat": {},
-  "Oswald": {}
+  "Montserrat": {
+    "400": {
+      "normal": "Montserrat/Montserrat-400.ttf",
+      "italic": "Montserrat/Montserrat-400Italic.ttf"
+    },
+    "500": {
+      "normal": "Montserrat/Montserrat-500.ttf",
+      "italic": "Montserrat/Montserrat-500Italic.ttf"
+    },
+    "600": {
+      "normal": "Montserrat/Montserrat-600.ttf",
+      "italic": "Montserrat/Montserrat-600Italic.ttf"
+    },
+    "700": {
+      "normal": "Montserrat/Montserrat-700.ttf",
+      "italic": "Montserrat/Montserrat-700Italic.ttf"
+    },
+    "900": {
+      "normal": "Montserrat/Montserrat-900.ttf",
+      "italic": "Montserrat/Montserrat-900Italic.ttf"
+    },
+    "800": {
+      "normal": "Montserrat/Montserrat-800.ttf",
+      "italic": "Montserrat/Montserrat-800Italic.ttf"
+    }
+  },
+  "Roboto": {
+    "400": {
+      "normal": "Roboto/Roboto-400.ttf",
+      "italic": "Roboto/Roboto-400Italic.ttf"
+    },
+    "500": {
+      "normal": "Roboto/Roboto-500.ttf",
+      "italic": "Roboto/Roboto-500Italic.ttf"
+    },
+    "600": {
+      "normal": "Roboto/Roboto-600.ttf",
+      "italic": "Roboto/Roboto-600Italic.ttf"
+    },
+    "700": {
+      "normal": "Roboto/Roboto-700.ttf",
+      "italic": "Roboto/Roboto-700Italic.ttf"
+    },
+    "900": {
+      "normal": "Roboto/Roboto-900.ttf",
+      "italic": "Roboto/Roboto-900Italic.ttf"
+    }
+  },
+  "Poppins": {
+    "100": {
+      "normal": "Poppins/Poppins-Thin.ttf",
+      "italic": "Poppins/Poppins-ThinItalic.ttf"
+    },
+    "200": {
+      "normal": "Poppins/Poppins-ExtraLight.ttf",
+      "italic": "Poppins/Poppins-ExtraLightItalic.ttf"
+    },
+    "300": {
+      "normal": "Poppins/Poppins-Light.ttf",
+      "italic": "Poppins/Poppins-LightItalic.ttf"
+    },
+    "400": {
+      "normal": "Poppins/Poppins-Regular.ttf",
+      "italic": "Poppins/Poppins-Italic.ttf"
+    },
+    "500": {
+      "normal": "Poppins/Poppins-Medium.ttf",
+      "italic": "Poppins/Poppins-MediumItalic.ttf"
+    },
+    "600": {
+      "normal": "Poppins/Poppins-SemiBold.ttf",
+      "italic": "Poppins/Poppins-SemiBoldItalic.ttf"
+    },
+    "700": {
+      "normal": "Poppins/Poppins-Bold.ttf",
+      "italic": "Poppins/Poppins-BoldItalic.ttf"
+    },
+    "800": {
+      "normal": "Poppins/Poppins-ExtraBold.ttf",
+      "italic": "Poppins/Poppins-ExtraBoldItalic.ttf"
+    },
+    "900": {
+      "normal": "Poppins/Poppins-Black.ttf",
+      "italic": "Poppins/Poppins-BlackItalic.ttf"
+    }
+  },
+  "Open Sans": {
+    "400": {
+      "normal": "OpenSans/OpenSans-400.ttf",
+      "italic": "OpenSans/OpenSans-400Italic.ttf"
+    },
+    "500": {
+      "normal": "OpenSans/OpenSans-500.ttf",
+      "italic": "OpenSans/OpenSans-500Italic.ttf"
+    },
+    "600": {
+      "normal": "OpenSans/OpenSans-600.ttf",
+      "italic": "OpenSans/OpenSans-600Italic.ttf"
+    },
+    "700": {
+      "normal": "OpenSans/OpenSans-700.ttf",
+      "italic": "OpenSans/OpenSans-700Italic.ttf"
+    },
+    "800": {
+      "normal": "OpenSans/OpenSans-800.ttf",
+      "italic": "OpenSans/OpenSans-800Italic.ttf"
+    }
+  },
+  "Lato": {
+    "100": {
+      "normal": "Lato/Lato-Thin.ttf"
+    },
+    "300": {
+      "normal": "Lato/Lato-Light.ttf"
+    },
+    "400": {
+      "normal": "Lato/Lato-Regular.ttf",
+      "italic": "Lato/Lato-Italic.ttf"
+    },
+    "700": {
+      "normal": "Lato/Lato-Bold.ttf",
+      "italic": "Lato/Lato-BoldItalic.ttf"
+    },
+    "900": {
+      "normal": "Lato/Lato-Black.ttf"
+    }
+  },
+  "Oswald": {
+    "400": {
+      "normal": "Oswald/Oswald-400.ttf"
+    },
+    "500": {
+      "normal": "Oswald/Oswald-500.ttf"
+    },
+    "600": {
+      "normal": "Oswald/Oswald-600.ttf"
+    },
+    "700": {
+      "normal": "Oswald/Oswald-700.ttf"
+    }
+  },
+  "Space Grotesk": {
+    "400": {
+      "normal": "SpaceGrotesk/SpaceGrotesk-400.ttf"
+    },
+    "500": {
+      "normal": "SpaceGrotesk/SpaceGrotesk-500.ttf"
+    },
+    "600": {
+      "normal": "SpaceGrotesk/SpaceGrotesk-600.ttf"
+    },
+    "700": {
+      "normal": "SpaceGrotesk/SpaceGrotesk-700.ttf"
+    }
+  },
+  "Lavishly Yours": {
+    "400": {
+      "normal": "Lavishly Yours/LavishlyYours-Regular.ttf"
+    }
+  }
 }

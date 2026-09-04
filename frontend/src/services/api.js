@@ -1,4 +1,28 @@
-const BASE = '/api'
+// Where the API lives.
+//
+// Default '/api' (a same-origin relative path) is correct in BOTH modes and
+// is why nothing else in the frontend needed touching:
+//   * dev      — vite.config.js proxies /api to http://localhost:8000
+//   * desktop  — the FastAPI process serves this built app itself, so the
+//                page origin IS the backend, on whatever port Electron
+//                picked for it that launch.
+// VITE_API_URL overrides it at build time for the cases that need an
+// absolute URL (pointing a dev UI at a backend on another host, or serving
+// the frontend from something other than the backend).
+const BASE = import.meta.env.VITE_API_URL || '/api'
+
+// Server-relative paths the API hands back (asset.servedPath, a job's
+// outputUrl) are already correct against a same-origin BASE. When BASE is
+// absolute they have to be re-anchored to that server instead of to
+// whatever host is showing the page.
+const API_ORIGIN = /^https?:\/\//i.test(BASE) ? new URL(BASE).origin : ''
+
+function absolute(path) {
+  if (!path) return ''
+  if (/^(https?:|blob:|data:)/i.test(path)) return path
+  if (!API_ORIGIN) return path
+  return `${API_ORIGIN}${path.startsWith('/') ? '' : '/'}${path}`
+}
 
 async function j(res) {
   if (!res.ok) {
@@ -83,22 +107,14 @@ export const api = {
     form.append('file', file)
     return fetch(`${BASE}/projects/${id}/upload`, { method: 'POST', body: form }).then(j)
   },
-  // `engine` picks the renderer: 'ffmpeg' (default, local, every format)
-  // or 'shotstack' (cloud, mp4 only). The Shotstack API key lives only in
-  // backend/.env and is never sent to or read by the browser.
-  startExport: (id, { format = 'mp4', quality = 'standard', frameRate, engine = 'ffmpeg' } = {}) => {
-    const params = { format, quality, engine }
+  startExport: (id, { format = 'mp4', quality = 'standard', frameRate } = {}) => {
+    const params = { format, quality }
     if (frameRate) params.frameRate = frameRate
     return fetch(`${BASE}/projects/${id}/export?${new URLSearchParams(params)}`, { method: 'POST' }).then(j)
   },
-  listExportEngines: () => fetch(`${BASE}/export/engines`).then(j),
-  // Dry-run the Shotstack validation so the panel can warn about anything
-  // that won't survive the conversion before a render is actually spent.
-  exportPreflight: (id) =>
-    fetch(`${BASE}/projects/${id}/export/preflight`, { method: 'POST' }).then(j),
   getExportStatus: (jobId) => fetch(`${BASE}/renders/${jobId}`).then(j),
-  downloadUrl: (path) => path,
-  assetUrl: (asset) => asset?.servedPath || '',
+  downloadUrl: (path) => absolute(path),
+  assetUrl: (asset) => absolute(asset?.servedPath || ''),
 
   // Milestone 2 — transcription + caption templates
   transcribe: (projectId, assetId, language) => {
@@ -143,5 +159,42 @@ export const api = {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+    }).then(j),
+
+  // Desktop build — per-user API keys, stored by the backend in the user's
+  // own data directory. Secrets are write-only: getSettings reports whether
+  // each key is set and its last four characters, never the key itself, so
+  // nothing sensitive is ever handed to the renderer process.
+  getSettings: () => fetch(`${BASE}/settings`).then(j),
+  updateSettings: (values) =>
+    fetch(`${BASE}/settings`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values }),
+    }).then(j),
+
+  // Font manifest — read-only mirror of registry.json, used only by
+  // preloadCoreFonts() (src/lib/captionLayout.js) to eagerly load the
+  // app's general UI typefaces (Inter/Space Grotesk, via Tailwind's
+  // font classes) at startup. NOT used for caption layout any more —
+  // see getCaptionLayout below.
+  getFontManifest: () => fetch(`${BASE}/font-manifest`).then(j),
+  // relPath is a manifest entry's value, e.g. "Montserrat/Montserrat-700.ttf" —
+  // relative to the /api/fonts static mount (see backend/app/main.py).
+  fontFileUrl: (relPath) => absolute(`/api/fonts/${relPath}`),
+
+  // Canonical caption layout — THE single source of truth for caption
+  // line breaks, word positions and typography (see
+  // backend/app/caption_layout.py's module docstring). Posts the exact
+  // TimelineItem + canvas size render.py's FFmpeg export already lays
+  // out from, and gets back the identical computed geometry: no Canvas
+  // measureText(), no word-wrap logic, and no font-fallback ladder of
+  // any kind runs in the browser any more — src/lib/captionLayout.js's
+  // fetchCaptionLayout() renders this response verbatim.
+  getCaptionLayout: (item, width, height) =>
+    fetch(`${BASE}/captions/layout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ item, width, height }),
     }).then(j),
 }

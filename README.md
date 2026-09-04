@@ -44,20 +44,13 @@ Create a `.env` file in the `backend/` directory:
 GROQ_API_KEY=your_groq_api_key
 WHISPER_MODEL=whisper-large-v3-turbo
 
-# AI Auto-Edit (OpenRouter or Google Gemini)
-OPENROUTER_API_KEY=your_openrouter_api_key
-OPENROUTER_MODEL=openai/gpt-4o-mini
-# OR
+# AI Auto-Edit (Google Gemini — sole AI provider, no fallback)
+# Get a free key at https://aistudio.google.com/apikey
 GEMINI_API_KEY=your_gemini_api_key
-GEMINI_MODEL=gemini-3.7-flash
+GEMINI_MODEL=gemini-3.8-flash
 
 # Stock Media Library (Pexels API: https://www.pexels.com/api/)
 PEXELS_API_KEY=your_pexels_api_key
-
-# Shotstack Cloud Rendering (Optional cloud MP4 rendering engine)
-SHOTSTACK_API_KEY=your_shotstack_api_key
-SHOTSTACK_ENV=stage # stage = free sandbox (watermarked), v1 = production
-SHOTSTACK_CALLBACK_BASE= # Optional public HTTPS base URL for render completion webhooks
 ```
 
 #### Run Backend Server
@@ -101,8 +94,6 @@ Frontend app will run at `http://localhost:5173`.
 │   │   ├── template_engine.py       # EditDecisions to TimelineItems converter
 │   │   ├── render.py                # FFmpeg multi-track filtergraph render engine
 │   │   ├── pexels.py                # Pexels stock video search, preview & download manager
-│   │   ├── shotstack.py             # Shotstack Cloud API client for cloud video rendering
-│   │   ├── shotstack_timeline.py    # Timeline JSON to Shotstack Edit JSON converter
 │   │   ├── stress_words.py          # AI Stress Text Highlighter heuristic scoring
 │   │   ├── sfx/                     # Bundled sound effects library registry & catalog
 │   │   ├── overlays/                # Video overlay filter validation & manager
@@ -115,7 +106,7 @@ Frontend app will run at `http://localhost:5173`.
 │   │   │   ├── templates.py         # Video template application router & static media asset server
 │   │   │   ├── broll.py             # B-roll search & attach router
 │   │   │   ├── sfx.py               # SFX catalog browse & attach router
-│   │   │   └── export.py            # Render job router, preflight validator & download handler
+│   │   │   └── export.py            # Local FFmpeg render job router & download handler
 │   │   └── templates/
 │   │       ├── schema.py            # Pydantic schemas for video templates (Caption, Broll, Overlay)
 │   │       ├── registry.py          # Template registry loader & JSON presets parser
@@ -125,7 +116,6 @@ Frontend app will run at `http://localhost:5173`.
 │   ├── .env                         # Backend environment secrets (API Keys)
 │   ├── .gitignore                   # Backend git ignore rules
 │   ├── diagnose_export.py           # Diagnostic script to run ladder of FFmpeg commands & identify crashes
-│   ├── test_shotstack_export.py     # Offline verification script for Shotstack timeline conversion
 │   └── requirements.txt             # Python dependencies
 │
 ├── frontend/
@@ -149,7 +139,7 @@ Frontend app will run at `http://localhost:5173`.
 │   │   │       ├── BrollPicker.jsx  # Pexels search grid (Images & Videos) + Upload Local tab
 │   │   │       ├── SfxPicker.jsx    # Bundled SFX catalog browser & timeline attacher modal
 │   │   │       ├── CtaPicker.jsx    # Call-To-Action stickers & badges picker modal
-│   │   │       ├── ExportPanel.jsx  # Dual export modal — Local FFmpeg & Cloud Shotstack, MP4/WebM/GIF, quality, FPS
+│   │   │       ├── ExportPanel.jsx  # Local FFmpeg export modal — MP4/WebM/GIF, quality, FPS
 │   │   │       ├── StressHighlightModal.jsx # AI Stress Text Highlighter style editor modal
 │   │   │       ├── TemplateLibrary.jsx # Video style template selector modal
 │   │   │       ├── Scenes.jsx       # Sentence-level scene view with b-roll indicator & 3-option dropdown
@@ -197,7 +187,7 @@ Frontend app will run at `http://localhost:5173`.
 10. **Sound FX (SFX) Library**: Browse bundled audio catalog (switches, swooshes, pops, risers) and attach SFX clips with precise start timing, custom duration, and volume scaling to dedicated timeline tracks.
 11. **Call-To-Action (CTA) Overlays**: Pick and place graphic overlay stickers and CTA badges onto the preview canvas and timeline.
 12. **Cover Image capture**: scrub the timeline in a dedicated "Cover" tab and save the current frame (via `POST /api/projects/{id}/cover`, reusing the export filtergraph) as the project's dashboard thumbnail.
-13. **Dual Export Engine & Preflight Validation**: Export projects using either a local server-side multi-track FFmpeg filtergraph engine or Cloud Shotstack rendering. Supports format selection (`mp4`, `webm`, `gif`), quality levels (`draft`, `standard`, `high`), target frame rates (`24`, `30`, `60` fps), and dry-run preflight validation checks (`/api/projects/{id}/export/preflight`).
+13. **Local Export Engine**: Export projects using a local server-side multi-track FFmpeg filtergraph engine. Supports format selection (`mp4`, `webm`, `gif`), quality levels (`draft`, `standard`, `high`), and target frame rates (`24`, `30`, `60` fps).
 
 ---
 
@@ -227,10 +217,7 @@ Frontend app will run at `http://localhost:5173`.
 | `POST` | `/api/projects/{id}/broll/attach` | Download & attach Pexels clip or local asset to timeline |
 | `GET` | `/api/sfx` | Fetch bundled sound effects catalog |
 | `POST` | `/api/projects/{id}/sfx/attach` | Attach chosen sound effect clip to timeline |
-| `GET` | `/api/export/engines` | List available export engines (Local FFmpeg & Cloud Shotstack) |
-| `POST` | `/api/projects/{id}/export/preflight` | Dry-run validation check for Shotstack cloud export |
-| `POST` | `/api/projects/{id}/export` | Trigger background export job (engine=`ffmpeg`\|`shotstack`, format, quality, fps) |
-| `POST` | `/api/shotstack/webhook` | Webhook callback handler for completed Shotstack cloud renders |
+| `POST` | `/api/projects/{id}/export` | Trigger background local FFmpeg export job (format, quality, fps) |
 | `GET` | `/api/renders/{job_id}` | Check status and progress of background rendering job |
 | `GET` | `/api/download/{filename}` | Download final rendered output file |
 

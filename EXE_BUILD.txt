@@ -1,0 +1,646 @@
+================================================================================
+🖥️  AI SHORT-FORM VIDEO EDITOR — WINDOWS EXE PACKAGING REFERENCE
+================================================================================
+This file documents exactly how the existing React + FastAPI app was turned
+into a Windows desktop application (AI Video Editor Setup.exe): every new and
+changed file, what each function in them does, the data that flows between
+them, the exact build commands, the startup/shutdown sequence, and the real
+problems hit (and fixed) while building it on this machine.
+
+Companion docs in this repo:
+  DESKTOP_BUILD.md   - task-oriented build/test walkthrough + checklist
+  FFMPEG.txt         - FFmpeg technical reference (unchanged by this work)
+  ALGORITHM.txt      - core app algorithms (unchanged by this work)
+This file is the "how the EXE itself is put together" reference.
+
+
+1. EXECUTIVE SUMMARY
+--------------------------------------------------------------------------------
+Nothing about the app's features changed. What changed is HOW it starts and
+WHERE it reads/writes files, so it can run as a double-clicked desktop app
+instead of `uvicorn app.main:app` + `npm run dev` in two terminals.
+
+Three separate build outputs feed into one final installer:
+
+  video-editor-backend.exe   <- PyInstaller freezes backend/app + Python itself
+  frontend/dist/             <- Vite builds the existing React app (unchanged)
+  ffmpeg.exe / ffprobe.exe   <- fetched once into resources/ffmpeg/
+
+  Electron (electron/main.js) wraps all three into:
+
+  AI Video Editor Setup 1.0.0.exe   <- release/, built by electron-builder
+
+Only the LAST of these is the thing end users install. The backend .exe and
+the frontend dist/ folder are intermediate build products that get copied
+INTO the installer by electron-builder's "extraResources" step (see section
+7). They are not distributed on their own.
+
+
+2. FULL SYSTEM ARCHITECTURE
+--------------------------------------------------------------------------------
+    AI Video Editor.exe                 <- NSIS-installed Start Menu/Desktop
+            |                              shortcut launches this
+            v
+    ELECTRON MAIN PROCESS (electron/main.js)
+            |
+            |-- app.requestSingleInstanceLock()   [prevents a 2nd copy]
+            |-- findFreePort()                    [asks the OS for one]
+            |-- startBackend(port)                [spawns the exe below]
+            |         |
+            |         v
+            |   resources/backend/video-editor-backend.exe --port <N>
+            |         |
+            |         v
+            |   uvicorn running the EXISTING FastAPI app (app/main.py),
+            |   unchanged routers, unchanged timeline model, unchanged
+            |   render.py filter graphs
+            |         |
+            |         |-- GET  /api/*              -> existing API, untouched
+            |         |-- GET  /  and every other   -> resources/frontend/
+            |         |         path                   (React production build)
+            |         |-- ffmpeg.exe / ffprobe.exe  -> resources/ffmpeg/
+            |         |-- reads/writes              -> %LOCALAPPDATA%\
+            |                                           AI Video Editor\data\
+            |
+            |-- waitForBackend(port)   [polls GET /api/health, no fixed sleep]
+            |-- createMainWindow(url)  [only after health check succeeds]
+            |-- on quit: stopBackend() [taskkill /T /F on the whole process
+                                         tree, so an in-flight ffmpeg export
+                                         never survives the app closing]
+
+    ELECTRON RENDERER PROCESS
+            |
+            v
+    The existing React app, loaded from http://127.0.0.1:<N>/
+    contextIsolation:true, nodeIntegration:false, sandbox:true
+    Only 4 narrow functions exposed via preload.js's `window.desktop`
+    (getInfo/openLogs/openDataFolder/openExternal) — no fs/child_process/
+    shell reachable from the page.
+
+
+3. COMPLETE FILE MANIFEST
+--------------------------------------------------------------------------------
+MODIFIED (existing files, behavior preserved, only path/CORS/serving logic
+touched):
+  backend/app/main.py          settings loaded before routers import; serves
+                                frontend/dist when present; SPA fallback route;
+                                CORS narrowed from "*" to named localhost
+                                origins; new GET /api/system/paths
+  backend/app/storage.py       UPLOADS_DIR/RENDERS_DIR now resolved via
+                                paths.py; added _safe_join() path-traversal
+                                guard
+  backend/app/db.py            DB_PATH resolved via paths.py; writes are now
+                                atomic (temp file + os.replace) and explicit
+                                UTF-8
+  backend/app/font_manager.py  FONTS_DIR resolved via paths.py instead of
+                                Path(__file__)
+  backend/app/render.py        _configured_ffmpeg()/_ffprobe_exe() fall back
+                                to paths.ffmpeg_path()/ffprobe_path() instead
+                                of a bare PATH lookup. Filter graphs, presets,
+                                and every render function untouched.
+  backend/requirements.txt     added python-dotenv (was imported, never
+                                declared)
+  frontend/src/services/api.js BASE now reads
+                                import.meta.env.VITE_API_URL || '/api';
+                                added getSettings()/updateSettings(); download
+                                Url/assetUrl re-anchor server-relative paths
+  frontend/src/pages/Dashboard.jsx   the existing "API & Integrations"
+                                sidebar item now opens the new Settings modal
+  .gitignore                   ignores new build outputs + per-user
+                                settings.json/logs
+
+NEW:
+  backend/app/paths.py             central path resolution (section 4.1)
+  backend/app/settings.py          per-user API key storage (section 4.2)
+  backend/app/routers/settings.py  GET/PUT /api/settings (section 4.3)
+  backend/app/routers/media.py     range-aware /api/uploads (section 4.4)
+  backend/app/db.default.json      seed database, copied on first run only
+  backend/run_server.py            PyInstaller entry point (section 4.5)
+  backend/build.spec               PyInstaller build spec (section 4.6)
+  backend/requirements-build.txt   requirements.txt + pyinstaller
+  frontend/src/components/dashboard/SettingsModal.jsx   Settings screen UI
+  electron/main.js                 Electron main process (section 5.1)
+  electron/preload.js              contextBridge surface (section 5.2)
+  scripts/dev-electron.js          launches Electron against Vite dev server
+  scripts/fetch-ffmpeg.ps1         populates resources/ffmpeg/, verifies
+                                    required filters are present
+  build/icon.ico, build/icon.png   app icon
+  package.json (repo root)         orchestrates the whole build (section 7)
+  resources/ffmpeg/README.txt      placeholder (the real .exe's are fetched,
+                                    never committed)
+  DESKTOP_BUILD.md                 build/test walkthrough
+  EXE_BUILD.txt                    this file
+
+
+4. BACKEND PACKAGING — FILE-BY-FILE FUNCTION REFERENCE
+--------------------------------------------------------------------------------
+
+4.1  backend/app/paths.py
+     Answers three questions everything else in the backend now defers to.
+
+     IS_FROZEN                    True under PyInstaller (sys.frozen), False
+                                   under a normal `uvicorn app.main:app` run.
+
+     _resource_root()              -> Path
+         Frozen:  sys._MEIPASS (PyInstaller's unpacked bundle dir)
+         Dev:     backend/  (two parents up from this file)
+         Everything read-only (templates, sfx, fonts, seed db) hangs off
+         RESOURCE_ROOT.
+
+     frontend_dist_dir()           -> Path | None
+         Finds the built React app so main.py can serve it. Checks, in
+         order: $AIVE_FRONTEND_DIST (set by Electron), RESOURCE_ROOT/
+         frontend_dist, next to the exe, next to the exe's parent
+         (installer layout: resources/frontend), then the dev checkout's
+         frontend/dist. Returns None if nothing has an index.html — main.py
+         then simply doesn't register the SPA route (API still works).
+
+     _default_user_data_dir()      -> Path
+         Windows: %LOCALAPPDATA%\AI Video Editor  (NOT %APPDATA% - this
+         holds multi-GB video, must never sync to a roaming profile)
+         macOS:   ~/Library/Application Support/AI Video Editor
+         Linux:   $XDG_DATA_HOME or ~/.local/share/ai-video-editor
+
+     LEGACY_DEV_LAYOUT             bool, True only for an unfrozen run with
+         no $AIVE_DATA_DIR set. When True, every writable path below
+         resolves EXACTLY where it always did (backend/app/uploads,
+         backend/app/renders, backend/app/db.json) - existing dev workflow
+         and any existing local projects are unaffected by this whole
+         packaging effort.
+
+     ensure_dirs()                  creates DATA_DIR/UPLOADS_DIR/RENDERS_DIR/
+                                     CACHE_DIR/LOGS_DIR if missing. Called
+                                     once at backend startup (main.py).
+
+     seed_database()                 copies app/db.default.json to DB_PATH
+                                     ONLY if DB_PATH doesn't exist yet. Never
+                                     overwrites - an upgrade install keeps
+                                     the user's existing projects.
+
+     _ffmpeg_search_dirs()          -> list[Path]
+         Ranked candidates for a bundled ffmpeg/ffprobe pair:
+         $AIVE_FFMPEG_DIR (Electron sets this) > next to the exe > exe's
+         parent > exe's grandparent > RESOURCE_ROOT/ffmpeg > dev checkout's
+         resources/ffmpeg.
+
+     _locate(stem)                  -> str | None
+         Resolution order for "ffmpeg" or "ffprobe":
+           1. $FFMPEG_BINARY / $FFPROBE_BINARY env override (checked first
+              so the Settings screen's override always wins)
+           2. first match in _ffmpeg_search_dirs()
+           3. shutil.which(stem)  (system PATH - same as before packaging)
+
+     ffmpeg_path() / ffprobe_path()  the public API render.py calls. Falls
+         back to the bare string "ffmpeg"/"ffprobe" if truly nothing is
+         found, so the failure surfaces as ffmpeg's own error rather than
+         a Python exception.
+
+     describe()                     -> dict
+         Every resolved path in one JSON object. Backs GET /api/system/
+         paths and the startup banner printed to backend.log - the first
+         thing worth reading when a packaged build misbehaves.
+
+4.2  backend/app/settings.py
+     Per-user API keys/model config, replacing a baked-in .env for the
+     desktop build.
+
+     SECRET_KEYS   = GROQ_API_KEY, OPENROUTER_API_KEY, GEMINI_API_KEY,
+                     PEXELS_API_KEY
+     PLAIN_KEYS    = WHISPER_MODEL, OPENROUTER_MODEL, GEMINI_MODEL,
+                     FFMPEG_BINARY, FFPROBE_BINARY
+
+     load()                          called once at backend startup, BEFORE
+         any router is imported (pexels.py snapshots its key
+         into a module constant at import time - order matters). Dev: reads
+         backend/.env exactly as before. Frozen: reads settings.json, plus
+         an optional .env next to the exe as a non-overriding default.
+
+     _read_file()/_write_file()      settings.json <-> dict, atomic write
+         (temp file + os.replace), chmod 0600 best-effort.
+
+     _apply(values)                  writes each value into os.environ (or
+         removes it if empty) - this is what every existing os.environ.get()
+         call in pexels.py/ai_edit.py/transcribe.py continues
+         to see, unmodified.
+
+     refresh_env_bound_modules()     called after every settings update.
+         Re-binds the module-level constant in pexels.py
+         (which reads os.environ.get(...) once at import time - correct for
+         a server started with a fixed .env, wrong once a user can change a
+         key without restarting), re-reads transcribe.py's Whisper model
+         constant, and clears render.py's two lru_cache'd resolver
+         functions so a new FFMPEG_BINARY takes effect immediately.
+
+     public_state()                  -> dict for the Settings screen. Each
+         secret reports {configured: bool, masked: "****last4"} - the real
+         value never leaves the backend.
+
+     update(patch)                   merges a partial {key: value} dict into
+         settings.json. Omitted key -> left alone. Explicit "" -> cleared.
+         Unknown keys are already rejected one level up, in the router.
+
+4.3  backend/app/routers/settings.py
+     GET  /api/settings   -> settings.public_state() + dataDir
+     PUT  /api/settings   -> body {"values": {...}}; validates key names,
+                             calls settings.update(), returns the new state.
+                             500 with the exact settings.json path if the
+                             write itself fails (disk full, permissions).
+
+4.4  backend/app/routers/media.py
+     GET /api/uploads/{filename}   - REAL BUG FIX, not just a repackaging
+         necessity: the FastAPI/Starlette version this project pins
+         (starlette 0.38.6) does not implement HTTP Range requests in
+         StaticFiles - it always answers 200 with the entire file, ignoring
+         the Range header the <video> element sends when the user scrubs
+         the timeline. For a multi-hundred-MB or multi-GB source clip that
+         means every seek re-downloads the whole file from byte 0.
+
+         serve_upload(filename, request)
+             - resolves the path through storage.asset_path_for() (which
+               refuses anything that would escape the uploads dir)
+             - no Range header -> FileResponse, whole file, Accept-Ranges:
+               bytes advertised so the browser knows it CAN range-request
+             - Range header present -> parses "bytes=start-end",
+               "bytes=start-", and "bytes=-N" (suffix) forms; returns 206
+               Partial Content with Content-Range/Content-Length, or 416 if
+               the range is out of bounds
+         _file_iterator(path, start, end)
+             - streams the requested byte range in 1 MiB chunks - a
+               multi-GB file is never read into memory at once
+
+         Verified this session with real curl Range requests (full file,
+         a byte range, a suffix range, an out-of-range request) against a
+         real uploaded video - all four behaved correctly (see section 9).
+
+4.5  backend/run_server.py
+     The actual file PyInstaller freezes (not app/main.py directly) -
+     app/main.py has no way to take a port argument or redirect a
+     nonexistent console's stdout on its own.
+
+     _default_log_path()             resolves %LOCALAPPDATA%\AI Video
+         Editor\logs\backend.log WITHOUT importing app.paths (output has to
+         be redirected before anything that might print is imported).
+
+     _install_logging(log_file)      rotates the log once it passes 5 MB
+         (renamed to backend.log.old), then replaces sys.stdout/sys.stderr
+         with a _Tee that writes to both the log file and, if present, the
+         real pipe Electron is reading.
+
+     main()                           argparse for --host/--port/--log-file
+         /--log-level, installs logging, imports uvicorn + app.main (which
+         is when the startup banner prints), then uvicorn.run(...). Catches
+         OSError (almost always "address already in use") and returns exit
+         code 2 with a one-line explanation in the log, rather than an
+         unexplained crash.
+
+     multiprocessing.freeze_support() at the very top of __main__ - without
+         this, a frozen exe that ever spawns a child process re-runs the
+         entire app in that child instead of the intended worker.
+
+4.6  backend/build.spec
+     PyInstaller spec, --onedir (NOT --onefile - see the comment at the top
+     of the file for why: this app has templates/sfx/fonts/thumbnails/
+     overlay videos as runtime resources, and --onefile would re-extract
+     all of it into a fresh temp dir on every single launch).
+
+     datas   = app/templates/library, app/sfx/library, fonts/,
+               app/db.default.json  - copied into the frozen bundle at the
+               SAME relative paths paths.py expects, so resolution is
+               identical frozen or not.
+     hiddenimports = every uvicorn submodule (collect_submodules -
+               uvicorn resolves its event loop/HTTP parser/websocket impl
+               by string name, which PyInstaller's static analysis cannot
+               see on its own), every app submodule (belt-and-braces so a
+               new router file is never silently dropped), plus h11/
+               httptools/websockets/wsproto/dotenv/multipart/
+               python_multipart explicitly, and imageio_ffmpeg IF it
+               happens to be installed (optional crash-fallback ffmpeg).
+     excludes = tkinter/matplotlib/pytest/IPython/PyQt5&6/PySide2&6/
+               notebook/jupyter and a few setuptools internals - nothing
+               here needs them; excluding keeps the build size and false-
+               positive AV surface down.
+     EXE(...)  console=False (no console window behind the Electron UI -
+               all output goes to backend.log via run_server.py's _Tee),
+               upx=False (UPX-packed Python DLLs are a well-known way to
+               get flagged by Windows Defender - not worth the size saving)
+     COLLECT(...) name='video-editor-backend' - this IS the folder name
+               under backend/dist/, and what electron/main.js and
+               package.json's electron-builder config both expect.
+
+
+5. ELECTRON SHELL — FILE-BY-FILE FUNCTION REFERENCE
+--------------------------------------------------------------------------------
+
+5.1  electron/main.js
+
+     MODE   one of "packaged" (installed app), "dev" (npm run dev - Vite +
+            a developer-started uvicorn), or "local-build" (npm run
+            electron against a locally built dist/ + backend.exe, no
+            installer involved). Decided once at startup from
+            app.isPackaged and $AIVE_DEV_SERVER_URL.
+
+     resolveUserDataDir()      %LOCALAPPDATA%\AI Video Editor (or
+                                $AIVE_DATA_DIR override) - passed to the
+                                backend as the SAME value paths.py's
+                                _default_user_data_dir() would compute, so
+                                Electron and the backend never disagree
+                                about where the data lives.
+
+     initLogging()/log(...)    writes electron.log next to backend.log,
+                                with the same 5 MB rotation policy.
+
+     backendExecutable()       finds video-editor-backend.exe: packaged ->
+                                resourcesPath/backend/; unpackaged -> repo's
+                                backend/dist/video-editor-backend/ (falls
+                                back to resources/backend/ if that's what
+                                exists). $AIVE_BACKEND_EXE overrides both.
+
+     frontendDistDir()         packaged -> resourcesPath/frontend; dev ->
+                                repo's frontend/dist. Passed to the backend
+                                as $AIVE_FRONTEND_DIST.
+
+     ffmpegDir()/ffmpegBinary(stem)   resourcesPath/ffmpeg (or
+                                $AIVE_FFMPEG_DIR); resolves ffmpeg.exe/
+                                ffprobe.exe inside it.
+
+     findFreePort()             binds a real net.Server to port 0, reads
+                                back whatever the OS assigned, closes it,
+                                returns that number. This is WHY the backend
+                                never has a fixed port in production - a
+                                stale process or another app already on
+                                8000 can never block startup.
+
+     startBackend(port)         spawns video-editor-backend.exe with
+                                --host 127.0.0.1 --port <port>, env vars
+                                AIVE_DATA_DIR / AIVE_FRONTEND_DIST /
+                                AIVE_FFMPEG_DIR / AIVE_LOG_FILE /
+                                FFMPEG_BINARY / FFPROBE_BINARY (if a bundled
+                                pair was found) / PYTHONIOENCODING=utf-8.
+                                Pipes stdout/stderr into log(); registers an
+                                'exit' handler that shows an error dialog
+                                and quits Electron if the backend dies while
+                                the window is already open (a startup-time
+                                death is instead reported by the health-
+                                check timeout below, with a clearer message)
+
+     stopBackend()               Windows: `taskkill /pid <pid> /T /F` - the
+                                /T kills the WHOLE process tree, so an
+                                in-flight ffmpeg export process (a CHILD of
+                                the backend) is also terminated, never left
+                                writing to a file after the app "closed".
+                                Other platforms: SIGTERM then SIGKILL after
+                                3s.
+
+     pingHealth(port)            one GET /api/health, 2s timeout, resolves
+                                true only on HTTP 200.
+
+     waitForBackend(port)        polls pingHealth every 300ms for up to 90s.
+                                Stops early if the backend process itself
+                                has already exited (no point polling a
+                                corpse). This is the "no sleep(2000)"
+                                requirement - startup is exactly as fast as
+                                the backend actually takes, every time.
+
+     createSplash()/splashStatus(text)   a frameless, borderless
+                                BrowserWindow loading an inline data: URL
+                                (no external file needed) showing "Starting
+                                local engine..." / "Warming up..." /
+                                "Opening editor..." - status text is pushed
+                                in via executeJavaScript, no IPC round trip
+                                needed since the splash has no need for one.
+
+     createMainWindow(url)       contextIsolation:true, nodeIntegration:
+                                false, sandbox:true, preload: preload.js.
+                                External links (http/https) always open in
+                                the user's real browser via shell.openExternal
+                                - never as a second frameless Electron
+                                window - via setWindowOpenHandler and a
+                                will-navigate guard.
+
+     fatal(message, detail)      destroys the splash, shows a native error
+                                dialog with the log directory path, quits.
+
+     boot()                      the actual sequence: create splash -> (dev
+                                mode: wait for the developer's own backend)
+                                OR (else: pick a port, spawn the backend,
+                                wait for health) -> create the main window
+                                -> show it once its own 'ready-to-show'
+                                fires (avoids a white flash).
+
+     Single instance: app.requestSingleInstanceLock() + a 'second-instance'
+     handler that just focuses the existing window - a second launch never
+     starts a second backend against the same db.json.
+
+     IPC handlers (exposed only through preload.js, see 5.2):
+       app:info          -> {version, platform, userDataDir, logsDir,
+                             backendPort}
+       app:openLogs      -> shell.openPath(logsDir)
+       app:openDataDir   -> shell.openPath(userDataDir)
+       app:openExternal  -> shell.openExternal(url), refuses non-http(s)
+
+5.2  electron/preload.js
+     contextBridge.exposeInMainWorld('desktop', { isDesktop: true,
+     getInfo, openLogs, openDataFolder, openExternal }) - four functions,
+     nothing else. No fs, no child_process, no shell, no ipcRenderer
+     reachable from the page itself. The React app runs identically with
+     window.desktop absent (i.e. in a normal browser), which is what keeps
+     `npm run dev`'s browser-based workflow unchanged.
+
+
+6. DATA & CONFIGURATION REFERENCE
+--------------------------------------------------------------------------------
+
+6.1  Environment variables (Electron -> backend, all optional/overridable)
+       AIVE_DATA_DIR        writable data root (default computed by both
+                             sides identically - see 5.1/4.1)
+       AIVE_FRONTEND_DIST   path to the built React app to serve
+       AIVE_FFMPEG_DIR      folder containing ffmpeg.exe/ffprobe.exe
+       AIVE_LOG_FILE        backend.log path
+       AIVE_HOST / AIVE_PORT   read by run_server.py if not passed as
+                             --host/--port CLI args
+       FFMPEG_BINARY / FFPROBE_BINARY   explicit absolute overrides -
+                             checked FIRST by paths.py, so the Settings
+                             screen's override always wins over the
+                             bundled copy
+       GROQ_API_KEY / OPENROUTER_API_KEY / OPENROUTER_MODEL /
+       GEMINI_API_KEY / GEMINI_MODEL / PEXELS_API_KEY / WHISPER_MODEL
+                             same names as backend/.env always used - set
+                             by settings.py from settings.json, read by the
+                             EXISTING unmodified pexels.py/
+                             ai_edit.py/transcribe.py exactly as before
+
+6.2  %LOCALAPPDATA%\AI Video Editor\   (the ENTIRE writable footprint)
+       data\db.json           project database (atomic writes, see 4-db.py)
+       data\uploads\           user-uploaded + downloaded (Pexels/SFX-
+                               attached) media, cover JPEGs
+       data\renders\           exported MP4/WebM/GIF output
+       data\cache\             reserved for future use (created, unused
+                               today)
+       settings.json           API keys + model overrides (0600 perms)
+       logs\backend.log        Python/uvicorn/ffmpeg stdout+stderr
+       logs\electron.log       Electron main-process log
+     Nothing under the INSTALL directory (Program Files or wherever the
+     user picked) is ever written to after installation - it is 100%
+     read-only application code + bundled resources.
+
+6.3  settings.json shape (only keys the user has actually set are present)
+       {
+         "GROQ_API_KEY": "gsk_...",
+         "OPENROUTER_API_KEY": "sk-or-...",
+         "WHISPER_MODEL": "whisper-large-v3-turbo",
+         ...
+       }
+     GET /api/settings never echoes these values - it returns
+     {"configured": true, "masked": "****ab12"} per secret key.
+
+
+7. BUILD PROCESS — EXACT COMMANDS
+--------------------------------------------------------------------------------
+(Full walkthrough + troubleshooting: DESKTOP_BUILD.md. This is the terse
+command reference.)
+
+  One-time setup:
+    npm install                                  (root: electron, electron-
+                                                   builder, concurrently)
+    npm run frontend:install                     (frontend/node_modules)
+    cd backend
+    python -m venv venv
+    venv\Scripts\activate
+    pip install -r requirements.txt -r requirements-build.txt
+    cd ..
+
+  Every build:
+    npm run fetch:ffmpeg      -> resources\ffmpeg\ffmpeg.exe + ffprobe.exe
+    npm run frontend:build    -> frontend\dist\        (Vite prod build)
+    npm run build:backend     -> backend\dist\video-editor-backend\
+                                  (PyInstaller --onedir; MUST run with
+                                  backend\venv active - see section 10.1)
+    npm run electron          -> (optional) smoke-test without an installer
+    npm run dist              -> release\AI Video Editor Setup 1.0.0.exe
+                                  (re-runs frontend:build + build:backend
+                                  first, then electron-builder)
+
+  package.json's "build" block (electron-builder config) copies, at
+  package time:
+    backend\dist\video-editor-backend\   -> resources\backend\
+    frontend\dist\                       -> resources\frontend\
+    resources\ffmpeg\*.exe / *.dll       -> resources\ffmpeg\
+  into the installer, plus electron\ itself and package.json (for
+  app.isPackaged / app.getVersion()).
+
+
+8. RUNTIME STARTUP SEQUENCE (numbered, matches electron/main.js boot())
+--------------------------------------------------------------------------------
+  1. User double-clicks the "AI Video Editor" shortcut
+  2. Electron main process starts, takes the single-instance lock
+  3. Splash window opens: "Starting local engine..."
+  4. findFreePort() asks Windows for an unused localhost port
+  5. startBackend(port) spawns video-editor-backend.exe --port <N> with
+     AIVE_DATA_DIR/AIVE_FRONTEND_DIST/AIVE_FFMPEG_DIR/AIVE_LOG_FILE set
+  6. Splash updates: "Warming up..."
+  7. video-editor-backend.exe: run_server.py installs logging, imports
+     app.main (paths.ensure_dirs() -> paths.seed_database() ->
+     settings.load() -> routers import -> startup banner printed), then
+     uvicorn.run() binds 127.0.0.1:<N>
+  8. Electron polls GET http://127.0.0.1:<N>/api/health every 300ms
+  9. First 200 OK -> splash updates: "Opening editor..."
+ 10. Main BrowserWindow created, loads http://127.0.0.1:<N>/
+ 11. FastAPI's SPA route serves resources\frontend\index.html
+ 12. React app boots; every fetch('/api/...') call lands on the SAME
+     origin/port - no CORS, no hardcoded host
+ 13. Window's 'ready-to-show' fires -> splash destroyed, main window
+     shown and maximized
+ 14. On quit (any path: X button, Alt+F4, taskbar, Cmd/Ctrl+Q): stopBackend()
+     runs `taskkill /pid <pid> /T /F`, killing the backend AND any ffmpeg
+     child process it spawned, before Electron itself exits
+
+
+9. VERIFICATION LOG — WHAT WAS ACTUALLY TESTED (not just read/reasoned about)
+--------------------------------------------------------------------------------
+Run against the modified backend, real ffmpeg, real files, this session:
+  [PASS] GET /api/health, GET /api/system/paths
+  [PASS] Project create / rename / delete (full lifecycle, 404 confirmed
+         after delete)
+  [PASS] Upload with a filename containing spaces + parentheses
+         ("with audio (1).mp4") - exercises _safe_join and multipart
+         handling
+  [PASS] ffprobe-derived duration/dimensions on upload
+  [PASS] Timeline save (video item + caption item)
+  [PASS] Cover-image capture - REAL drawtext composite via
+         render.capture_frame, fetched back over HTTP and confirmed non-
+         zero size
+  [PASS] FULL FFMPEG EXPORT - mp4, standard quality, caption burned in -
+         output verified with ffprobe: h264 1080x1920 video stream + aac
+         audio stream, correct duration
+  [PASS] Download endpoint for the rendered file
+  [PASS] SFX catalog fetch + attach
+  [PASS] Template list + apply
+  [PASS] Settings GET/PUT round-trip (confirmed: omitted field left alone,
+         explicit "" clears a field)
+  [PASS] Path traversal against /api/uploads/... and the SPA static route
+         (../ and %2e%2e-encoded) - both correctly refused (404, or SPA
+         fallback rather than an escaped file)
+  [PASS] HTTP Range requests against /api/uploads/... - full file
+         (200 + Accept-Ranges), a byte range (206 + correct Content-
+         Range), a suffix range "bytes=-500" (206, last 500 bytes), an
+         out-of-range request (416)
+  [PASS] Full esbuild compile of the entire frontend from main.jsx,
+         resolving every real import (including the new SettingsModal) -
+         0 errors
+  [NOT RUN HERE - needs your machine] PyInstaller-for-Windows itself,
+         the NSIS installer build, and anything calling Groq/OpenRouter/
+         Gemini/Pexels (this session's sandbox has no route to
+         those hosts and cannot execute a Windows PE binary)
+
+
+10. PROBLEMS HIT DURING THIS BUILD, AND THE FIX (real, not hypothetical)
+--------------------------------------------------------------------------------
+10.1  "Failed to load Python DLL '...\backend\build\build_internal\
+       python312.dll'. LoadLibrary: The specified module could not be
+       found."
+
+      Root cause #1: backend\build\ is PyInstaller's SCRATCH/intermediate
+      directory (produced by --workpath), never a runnable output. A
+      stray/partial exe can exist there without its DLLs. The path
+      "build_internal" does not exist anywhere in this project - it came
+      from running the wrong exe.
+        FIX: always run backend\dist\video-editor-backend\
+             video-editor-backend.exe - confirmed, by direct inspection,
+             to have python312.dll + VCRUNTIME140.dll + VCRUNTIME140_1.dll
+             correctly bundled alongside it.
+
+      Root cause #2 (found by inspecting what actually got bundled):
+      backend\dist\...\_internal\ contained numpy, mypy, werkzeug, h2,
+      email_validator, bcrypt, cryptography, pywin32 - NONE of which are
+      in requirements.txt. backend\venv\Lib\site-packages itself was
+      confirmed clean (~48 packages, exactly what the project needs).
+      This means `pyinstaller` on PATH resolved to a DIFFERENT, much
+      larger Python environment than backend\venv when `npm run
+      build:backend` ran - almost always because the venv wasn't actually
+      active in that terminal (a new tab, or activation silently didn't
+      take).
+        FIX:
+          Remove-Item -Recurse -Force backend\build, backend\dist
+          cd backend
+          venv\Scripts\activate
+          where.exe pyinstaller
+            # MUST print ...\backend\venv\Scripts\pyinstaller.exe -
+            # if it prints anything else, the venv is not actually active
+          cd ..
+          npm run build:backend
+
+
+11. VERSIONING & DISTRIBUTION
+--------------------------------------------------------------------------------
+Single source of truth: the root package.json "version" field. electron-
+builder uses it for both the installer filename
+("AI Video Editor Setup <version>.exe") and the Windows uninstall entry.
+Bump it before each `npm run dist` (1.0.0 -> 1.0.1 -> ...).
+
+The installer is UNSIGNED - Windows SmartScreen will show an "unknown
+publisher" prompt on first run ("More info" -> "Run anyway"). Only a
+purchased code-signing certificate removes this; out of scope here.
+
+Do not distribute a build that has your personal .env keys baked in next
+to the backend exe (see DESKTOP_BUILD.md section 8) - ship it with the
+Settings screen empty and let each user enter their own keys.

@@ -122,6 +122,11 @@ def apply_edit_decisions(
             # Pexels clip for this keyword; otherwise it stays None and the
             # renderer skips the item rather than failing the export.
             asset_id = (broll_assets or {}).get(m.keyword)
+            # Per-clip revealAnimation: Gemini suggests, backend validates and
+            # diversifies (see ai_edit.py VALID_REVEAL_ANIMATIONS + routers/
+            # auto_edit.py _diversify_transitions). Use it when present;
+            # fall back to the template's global broll default otherwise.
+            reveal = m.revealAnimation if m.revealAnimation else b_reveal
             broll_track.items.append(
                 TimelineItem(
                     id=f"broll_{uuid.uuid4().hex[:8]}",
@@ -129,9 +134,9 @@ def apply_edit_decisions(
                     assetId=asset_id,
                     start=m.start,
                     duration=duration,
-                    # Template decides HOW: layout, reveal, scale
+                    # Template decides HOW: layout, scale — AI decides TRANSITION
                     layout=b_layout,
-                    revealAnimation=b_reveal,
+                    revealAnimation=reveal,
                     revealDuration=b_reveal_dur,
                     transform=Transform(scale=b_scale),
                     zIndex=10,

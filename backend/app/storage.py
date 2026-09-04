@@ -11,12 +11,32 @@ import os
 import shutil
 import uuid
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UPLOADS_DIR = os.path.join(BASE_DIR, "app", "uploads")
-RENDERS_DIR = os.path.join(BASE_DIR, "app", "renders")
+from . import paths
 
-os.makedirs(UPLOADS_DIR, exist_ok=True)
-os.makedirs(RENDERS_DIR, exist_ok=True)
+# Where these live is decided by paths.py, not by this file's location on
+# disk: in a packaged Windows build the code sits in a read-only install
+# directory and the media has to go under %LOCALAPPDATA% instead. A plain
+# dev run still resolves to backend/app/uploads and backend/app/renders.
+UPLOADS_DIR = str(paths.UPLOADS_DIR)
+RENDERS_DIR = str(paths.RENDERS_DIR)
+
+paths.ensure_dirs()
+
+
+def _safe_join(directory: str, filename: str) -> str:
+    """Join a caller-supplied filename onto one of our storage directories,
+    refusing anything that would escape it.
+
+    Filenames reach these helpers from URLs (/api/download/{filename}) and
+    from stored records, so '..\\..\\Windows\\System32\\...' has to be
+    impossible rather than merely unlikely."""
+    name = os.path.basename(str(filename or ""))
+    if not name or name in (".", ".."):
+        raise ValueError("Invalid filename")
+    target = os.path.normpath(os.path.join(directory, name))
+    if os.path.commonpath([os.path.abspath(directory), os.path.abspath(target)]) != os.path.abspath(directory):
+        raise ValueError("Invalid filename")
+    return target
 
 
 def save_upload(file_obj, original_filename: str) -> tuple[str, str, str]:
@@ -42,11 +62,11 @@ def save_stream(stream, ext: str) -> tuple[str, str, str]:
 
 
 def asset_path_for(filename: str) -> str:
-    return os.path.join(UPLOADS_DIR, filename)
+    return _safe_join(UPLOADS_DIR, filename)
 
 
 def render_path_for(filename: str) -> str:
-    return os.path.join(RENDERS_DIR, filename)
+    return _safe_join(RENDERS_DIR, filename)
 
 
 def cover_path_for(project_id: str) -> tuple[str, str]:

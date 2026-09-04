@@ -70,22 +70,30 @@ Algorithm Steps:
 
 3. AI AUTO-EDIT DECISION GENERATION & VALIDATION ALGORITHM
 -------------------------------------------------------------------------------
-Location: backend/app/ai_edit.py (call_auto_edit, call_openrouter, call_gemini_direct, validate_decisions)
+Location: backend/app/ai_edit.py (call_auto_edit, validate_decisions)
+
+Provider: Google Gemini exclusively (via the google-genai SDK).
+No fallback to any other AI provider. If Gemini fails, a descriptive
+Gemini-specific error is raised immediately.
 
 Purpose:
-Uses LLMs (OpenRouter/GPT-4o-mini with Gemini 3.7/2.0 Flash fallback) to 
-automatically plan video edits (zooms, B-roll suggestions, caption emphasis), 
-then filters out malformed or overlapping decisions before timeline injection.
+Uses Google Gemini (gemini-3.8-flash by default) to automatically plan video
+edits (zooms, B-roll suggestions, caption emphasis), then filters out malformed
+or overlapping decisions before timeline injection.
 
 Algorithm Steps:
   Step 1: Compact Prompt Assembly (_build_transcript_text)
           Formats transcript into compact timestamped text: "[start-end] word" per line.
           Includes total video duration and structural system instructions.
 
-  Step 2: Dual Provider API Execution (call_auto_edit)
-          - Primary: OpenRouter API (openai/gpt-4o-mini) with response_format={"type": "json_object"}.
-          - Fallback: On network error or timeout, switches to Google Gemini API (gemini-3.7-flash).
-          - Expects JSON schema: {hook, title, description, moments: [{type, start, end, reason, keyword, scale}]}.
+  Step 2: Gemini API Execution (call_auto_edit)
+          - Creates a genai.Client with GEMINI_API_KEY.
+          - Calls client.interactions.create(model=GEMINI_MODEL, input=prompt).
+          - Model default: gemini-3.8-flash (override via GEMINI_MODEL env var).
+          - Parses output_text as JSON. On any error (network, HTTP 4xx/5xx,
+            malformed JSON), raises a Gemini-specific RuntimeError immediately.
+            There is no provider fallback.
+          - Expects JSON schema: {hook, title, description, moments: [{type, start, end, reason, keyword, scale, style, confidence}]}.
 
   Step 3: Hard Validation Gate (validate_decisions)
           Iterates through raw edit moments and enforces strict bounds:

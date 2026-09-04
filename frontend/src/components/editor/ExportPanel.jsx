@@ -1,5 +1,4 @@
-import { useEffect } from 'react'
-import { Film, Globe, Repeat, X, Download, Loader2, CheckCircle2, AlertTriangle, Save, Cloud, Cpu, Info } from 'lucide-react'
+import { Film, Globe, Repeat, X, Download, Loader2, CheckCircle2, AlertTriangle, Save } from 'lucide-react'
 import { useEditorStore } from '../../stores/editorStore'
 
 // The 3 export formats — see backend/app/render.py's render_timeline(fmt=...)
@@ -51,29 +50,13 @@ export default function ExportPanel() {
     startExport,
     exportJob,
     timeline,
-    exportEngine,
-    setExportEngine,
-    exportEngines,
-    loadExportEngines,
-    exportPreflight,
   } = useEditorStore()
-
-  // Ask the backend which engines are actually usable. Shotstack only shows
-  // as available once SHOTSTACK_API_KEY is set in backend/.env — the key
-  // itself never leaves the server.
-  useEffect(() => {
-    if (exportPanelOpen && !exportEngines) loadExportEngines()
-  }, [exportPanelOpen, exportEngines, loadExportEngines])
 
   if (!exportPanelOpen) return null
 
   const jobStatus = exportJob?.status
   const isBusy = jobStatus === 'queued' || jobStatus === 'processing'
   const projectFps = timeline?.project?.fps || 30
-  const isCloud = exportEngine === 'shotstack'
-  const engineInfo = exportEngines?.engines || []
-  const shotstackAvailable = engineInfo.find((e) => e.id === 'shotstack')?.available ?? false
-  const blockedByPreflight = isCloud && exportPreflight && exportPreflight.ok === false
   const progress = exportJob?.progress || 0
 
   return (
@@ -100,72 +83,8 @@ export default function ExportPanel() {
         </div>
 
         <div className="overflow-y-auto">
-          {/* Render engine */}
-          <div className="px-6 pt-5">
-            <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Render engine</span>
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              {[
-                { id: 'ffmpeg', label: 'FFmpeg', sub: 'Local · all formats', icon: Cpu, available: true },
-                { id: 'shotstack', label: 'Shotstack', sub: 'Cloud · MP4 only', icon: Cloud, available: shotstackAvailable },
-              ].map((e) => {
-                const Icon = e.icon
-                const selected = exportEngine === e.id
-                return (
-                  <button
-                    key={e.id}
-                    disabled={isBusy || !e.available}
-                    onClick={() => setExportEngine(e.id)}
-                    title={!e.available ? 'Set SHOTSTACK_API_KEY in backend/.env to enable this' : undefined}
-                    className={`flex items-start gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
-                      selected
-                        ? 'border-primary ring-2 ring-primary/40 bg-primary/10'
-                        : 'border-dark-border bg-dark-panel2 hover:border-primary/50'
-                    }`}
-                  >
-                    <Icon className={`mt-0.5 h-4 w-4 shrink-0 ${selected ? 'text-primary' : 'text-slate-400'}`} />
-                    <div className="min-w-0">
-                      <div className="text-xs font-bold text-slate-100">{e.label}</div>
-                      <div className="text-[10px] leading-tight text-slate-500">{e.sub}</div>
-                    </div>
-                  </button>
-                )
-              })}
-            </div>
-            {isCloud && (
-              <p className="mt-2 text-[11px] leading-snug text-slate-500">
-                Your media is uploaded to Shotstack before rendering, and the finished MP4 is hosted by them.
-              </p>
-            )}
-          </div>
-
-          {/* Preflight: what won't survive the conversion */}
-          {isCloud && exportPreflight && (exportPreflight.errors?.length > 0 || exportPreflight.warnings?.length > 0) && (
-            <div className="px-6 pt-4">
-              {exportPreflight.errors?.length > 0 && (
-                <div className="mb-2 rounded-xl border border-danger/30 bg-red-950/40 px-3.5 py-2.5">
-                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-danger">
-                    <AlertTriangle className="h-3.5 w-3.5" /> Can't export to Shotstack
-                  </div>
-                  <ul className="mt-1 list-disc pl-4 text-[11px] text-danger/90 space-y-0.5">
-                    {exportPreflight.errors.map((m, i) => <li key={i}>{m}</li>)}
-                  </ul>
-                </div>
-              )}
-              {exportPreflight.warnings?.length > 0 && (
-                <div className="rounded-xl border border-amber-500/30 bg-amber-950/30 px-3.5 py-2.5">
-                  <div className="flex items-center gap-1.5 text-[11px] font-bold text-amber-400">
-                    <Info className="h-3.5 w-3.5" /> Will differ from the preview
-                  </div>
-                  <ul className="mt-1 list-disc pl-4 text-[11px] text-amber-200/80 space-y-0.5">
-                    {exportPreflight.warnings.map((m, i) => <li key={i}>{m}</li>)}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Format options */}
-          <div className={`flex flex-col gap-2.5 p-6 pb-0 ${isCloud ? 'opacity-40 pointer-events-none' : ''}`}>
+          <div className="flex flex-col gap-2.5 p-6 pb-0">
             {FORMATS.map((f) => {
               const Icon = f.icon
               const selected = exportFormat === f.id
@@ -304,14 +223,9 @@ export default function ExportPanel() {
                 <CheckCircle2 className="h-4 w-4" />
                 Completed
               </div>
-              {/* Shotstack hosts the finished MP4 on its own domain, so that link
-                  opens in a new tab; the local FFmpeg output is served from this
-                  backend and downloads in place. */}
               <a
                 href={exportJob.outputUrl}
                 download
-                target={exportJob.hosted ? '_blank' : undefined}
-                rel={exportJob.hosted ? 'noreferrer' : undefined}
                 className="mt-2 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500/20 px-4 py-2.5 text-xs font-bold text-emerald-300 transition hover:bg-emerald-500/30"
               >
                 <Download className="h-3.5 w-3.5" />
@@ -329,17 +243,17 @@ export default function ExportPanel() {
 
           <button
             onClick={() => startExport()}
-            disabled={isBusy || blockedByPreflight}
+            disabled={isBusy}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-xs font-bold text-white shadow-purpleGlow transition hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isBusy ? (
               <>
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Rendering {isCloud ? 'in the cloud' : exportFormat.toUpperCase()}...
+                Rendering {exportFormat.toUpperCase()}...
               </>
             ) : (
               <>
-                {isCloud ? <Cloud className="h-3.5 w-3.5" /> : <Save className="h-3.5 w-3.5" />}
+                <Save className="h-3.5 w-3.5" />
                 {jobStatus === 'done' || jobStatus === 'failed' ? 'Export again' : 'Export'}
               </>
             )}

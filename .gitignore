@@ -4,6 +4,9 @@ frontend/node_modules/
 venv/
 backend/venv/
 env/
+backend/env/
+.venv/
+backend/.venv/
 
 # Environment variables & secrets
 .env
@@ -11,12 +14,18 @@ env/
 .env.*.local
 backend/.env
 frontend/.env
+!.env.example
 
 # Build outputs & distribution
 dist/
 frontend/dist/
 build/
+backend/build/
+backend/dist/
 *.egg-info/
+dist-electron/
+out/
+release/
 
 # Python bytecode & cache
 __pycache__/
@@ -25,6 +34,8 @@ __pycache__/
 .pytest_cache/
 .coverage
 .cache/
+.mypy_cache/
+.ruff_cache/
 
 # Backend runtime files & media storage
 backend/app/uploads/*
@@ -33,10 +44,25 @@ backend/app/renders/*
 !backend/app/renders/.gitkeep
 backend/app/db.json
 
+# Scratch scripts, test artifacts & temporary directories
+_to_delete/
+backend/scratch_*.py
+scratch_*.py
+backend/*.png
+backend/*.jpg
+!backend/app/templates/library/thumbnails/*
+*.bak
+*.bak.*
+*.tmp
+*.temp
+*~
+
 # Compressed archives
 *.zip
 *.tar.gz
+*.tar.xz
 *.rar
+*.7z
 
 # Logs
 *.log
@@ -55,3 +81,15 @@ ehthumbs.db
 .idea/
 *.swp
 *.swo
+.agents/
+
+# Desktop (Electron) & FFmpeg resources — see PROJECT.md / DESKTOP_BUILD.md
+resources/ffmpeg/*.exe
+resources/ffmpeg/*.dll
+resources/ffmpeg/*.zip
+resources/ffmpeg/*.7z
+!resources/ffmpeg/README.txt
+
+# Per-user desktop settings/logs created by run_server.py / local dev
+backend/settings.json
+backend/logs/

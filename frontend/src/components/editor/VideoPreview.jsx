@@ -22,6 +22,7 @@ import { useEditorStore } from '../../stores/editorStore'
 import { api } from '../../services/api'
 import { BrollAnimation, computeBaseVideoStyle, SpeakerPreview } from './animations'
 import useOverlaySourceSync from './animations/useOverlaySourceSync'
+import { fetchCaptionLayout, resolveOverlayFont } from '../../lib/captionLayout'
 
 // Unicode glyph shown before a CTA's text, keyed by item.ctaIcon — MUST
 // mirror backend/app/render.py's _CTA_ICON_GLYPHS exactly (same names,
@@ -84,7 +85,7 @@ function TrackAudioPlayer({ item, src, currentTime, isPlaying, isMuted, volume }
     el.muted = isMuted
     el.volume = Math.max(0, Math.min(1, (item.volume ?? 1) * volume))
     if (isPlaying && el.paused) {
-      el.play().catch(() => {})
+      el.play().catch(() => { })
     } else if (!isPlaying && !el.paused) {
       el.pause()
     }
@@ -155,7 +156,7 @@ export default function VideoPreview() {
       videoRef.current.currentTime = currentTime
     }
     if (isPlaying && videoRef.current.paused) {
-      videoRef.current.play().catch(() => {})
+      videoRef.current.play().catch(() => { })
     } else if (!isPlaying && !videoRef.current.paused) {
       videoRef.current.pause()
     }
@@ -184,6 +185,85 @@ export default function VideoPreview() {
 
   const baseStyle = computeBaseVideoStyle({ activeSplitItem, zoomScale, currentTime })
 
+  // Caption typography parity: measure the CANVAS box's actual rendered
+  // CSS pixel size so captions can be laid out once in canvas-space
+  // (item.fontSize's own units — the exact same units render.py's FFmpeg
+  // export uses) and scaled down with a single CSS transform, instead of
+  // the old fixed `/3.0` divisor that had no relationship to the box's
+  // real size. See captionLayout.js's module docstring.
+  const canvasViewportRef = useRef(null)
+  const [canvasViewportHeight, setCanvasViewportHeight] = useState(0)
+  useEffect(() => {
+    const el = canvasViewportRef.current
+    if (!el || typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect
+      if (rect) setCanvasViewportHeight(rect.height)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+  const canvasScale = canvasViewportHeight > 0 ? canvasViewportHeight / height : 0
+
+  // One canonical layout per currently-active caption line — fetched
+  // from POST /api/captions/layout (backend/app/caption_layout.py's
+  // layout_caption(), the SAME function render.py's FFmpeg export calls
+  // in-process). No wrapping/measurement happens in the browser any
+  // more — see captionLayout.js's fetchCaptionLayout(). Computed
+  // asynchronously (it loads whatever font files it needs first) and
+  // cached by item id so re-entering the same caption's time range
+  // doesn't re-fetch it.
+  const activeCaptionItems = captionItems.filter(activeAt)
+  const [captionLayouts, setCaptionLayouts] = useState({})
+  const captionStyleKey = JSON.stringify(activeCaptionItems.map((it) => ({
+    id: it.id, text: it.text, position: it.position, animation: it.animation, case: it.case,
+    fontFamily: it.fontFamily, fontWeight: it.fontWeight, fontSize: it.fontSize,
+    color: it.color, backgroundColor: it.backgroundColor,
+    strokeColor: it.strokeColor, strokeWidth: it.strokeWidth,
+    highlightColor: it.highlightColor, stressWordIndices: it.stressWordIndices,
+    stressFontFamily: it.stressFontFamily, stressFontWeight: it.stressFontWeight,
+    stressFontStyle: it.stressFontStyle, stressFontSize: it.stressFontSize,
+    stressColor: it.stressColor, stressBackgroundColor: it.stressBackgroundColor,
+    stressStrokeEnabled: it.stressStrokeEnabled, stressStrokeColor: it.stressStrokeColor,
+    stressStrokeWidth: it.stressStrokeWidth, stressPadding: it.stressPadding,
+    stressCornerRadius: it.stressCornerRadius,
+  })))
+  useEffect(() => {
+    let cancelled = false
+    activeCaptionItems.forEach((item) => {
+      fetchCaptionLayout(item, width, height).then((layout) => {
+        if (!cancelled) setCaptionLayouts((prev) => ({ ...prev, [item.id]: layout }))
+      })
+    })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [captionStyleKey, width, height])
+
+  // CTA pill font — resolved the SAME way render.py's CTA drawtext path
+  // resolves it (resolve_font(item.fontFamily, item.fontWeight, "normal")
+  // — CTAs have no separate fontStyle field on TimelineItem, so "normal"
+  // is hardcoded here too, matching render.py exactly), loaded as the
+  // exact physical font file via the same per-file FontFace mechanism
+  // caption words use. Previously this pill only used Tailwind's
+  // hardcoded font-extrabold class, which ignored the item's actual
+  // fontFamily/fontWeight entirely and always looked like weight ~800
+  // regardless of what Export would render.
+  const activeCtaItems = ctaItems.filter(activeAt)
+  const [ctaFonts, setCtaFonts] = useState({})
+  const ctaStyleKey = JSON.stringify(activeCtaItems.map((it) => ({
+    id: it.id, fontFamily: it.fontFamily, fontWeight: it.fontWeight,
+  })))
+  useEffect(() => {
+    let cancelled = false
+    activeCtaItems.forEach((item) => {
+      resolveOverlayFont(item.fontFamily, item.fontWeight, 'normal').then((font) => {
+        if (!cancelled) setCtaFonts((prev) => ({ ...prev, [item.id]: font }))
+      })
+    })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ctaStyleKey])
+
   function formatTime(s) {
     const m = Math.floor(s / 60)
     const sec = Math.floor(s % 60)
@@ -209,8 +289,8 @@ export default function VideoPreview() {
             <button
               onClick={() => setPreviewTab('brand')}
               className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-bold transition-all ${previewTab === 'brand'
-                  ? 'bg-dark-panel2 text-slate-100 shadow-md'
-                  : 'bg-dark-panel3 text-slate-400 hover:bg-dark-panel2 hover:text-white shadow-sm'
+                ? 'bg-dark-panel2 text-slate-100 shadow-md'
+                : 'bg-dark-panel3 text-slate-400 hover:bg-dark-panel2 hover:text-white shadow-sm'
                 }`}
             >
               <Sparkles className="h-3.5 w-3.5 text-slate-300" />
@@ -220,8 +300,8 @@ export default function VideoPreview() {
             <button
               onClick={() => setPreviewTab('audio')}
               className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-bold transition-all ${previewTab === 'audio'
-                  ? 'bg-dark-panel2 text-slate-100 shadow-md'
-                  : 'bg-dark-panel3 text-slate-400 hover:bg-dark-panel2 hover:text-white shadow-sm'
+                ? 'bg-dark-panel2 text-slate-100 shadow-md'
+                : 'bg-dark-panel3 text-slate-400 hover:bg-dark-panel2 hover:text-white shadow-sm'
                 }`}
             >
               <Music className="h-3.5 w-3.5 text-slate-300" />
@@ -231,8 +311,8 @@ export default function VideoPreview() {
             <button
               onClick={() => setPreviewTab('cover')}
               className={`flex items-center gap-1.5 rounded-xl px-3.5 py-1.5 text-xs font-bold transition-all ${previewTab === 'cover'
-                  ? 'bg-dark-panel2 text-slate-100 shadow-md'
-                  : 'bg-dark-panel3 text-slate-400 hover:bg-dark-panel2 hover:text-white shadow-sm'
+                ? 'bg-dark-panel2 text-slate-100 shadow-md'
+                : 'bg-dark-panel3 text-slate-400 hover:bg-dark-panel2 hover:text-white shadow-sm'
                 }`}
             >
               <ImageIcon className="h-3.5 w-3.5 text-slate-300" />
@@ -246,6 +326,7 @@ export default function VideoPreview() {
         {/* Main 9:16 Video Phone Viewport */}
         <div className="flex flex-1 items-center justify-center relative min-h-0 py-2">
           <div
+            ref={canvasViewportRef}
             className="relative overflow-hidden rounded-2xl bg-black shadow-2xl shadow-black/80"
             style={{ height: '100%', maxHeight: 460, aspectRatio: width / height }}
           >
@@ -355,89 +436,153 @@ export default function VideoPreview() {
               )
             })}
 
-            {/* Caption Overlays */}
-            {captionItems.filter(activeAt).map((item) => {
-              const strokeW = item.strokeWidth || 0
-              const strokeColor = item.strokeColor || '#000000'
-              const webkitStroke = strokeW > 0 ? `${Math.max(1, Math.round(strokeW / 2))}px ${strokeColor}` : 'none'
-              const words = (item.text || '').split(' ')
+            {/* Caption Overlays — the ONE canonical layout computed
+                server-side by backend/app/caption_layout.py's
+                layout_caption() (see routers/captions.py's
+                POST /api/captions/layout and captionLayout.js's
+                fetchCaptionLayout()), rendered here VERBATIM at 1:1
+                canvas-space pixel coordinates inside a wrapper scaled
+                down to the viewport's actual rendered size. No wrapping,
+                no measurement, and no font-fallback decision happens in
+                this component — every x/y/baseline/font/color/stroke
+                value below is read directly off the API response, the
+                SAME response shape render.py's FFmpeg export builds its
+                drawtext filters from via the identical Python function,
+                in-process (_build_caption_filters). The one exception is
+                "legacy highlight" (item.highlightColor on the very first
+                word, pre-dating the stress-word feature): a purely
+                decorative color override with no effect on position,
+                size or wrapping, so it stays a local rendering decision
+                layered on top of the canonical word — never a second
+                layout calculation. */}
+            {activeCaptionItems.map((item) => {
+              const layout = captionLayouts[item.id]
+              if (!layout || !canvasScale) return null
+              let globalWordIdx = -1
               return (
                 <div
                   key={item.id}
-                  className={`absolute left-0 right-0 flex justify-center px-6 z-20 ${item.position === 'top'
-                      ? 'top-6'
-                      : item.position === 'center'
-                        ? 'top-[60%] -translate-y-1/2'
-                        : 'bottom-8'
-                    }`}
+                  className="absolute left-0 top-0 z-9 pointer-events-none"
+                  style={{
+                    width, height,
+                    transform: `scale(${canvasScale})`,
+                    transformOrigin: 'top left',
+                  }}
                 >
-                  <span
+                  <div
                     key={`${item.id}-${item.start}`}
-                    className={`rounded-xl px-3.5 py-1 text-center font-black leading-tight caption-anim-${item.animation || 'fade'}`}
-                    style={{
-                      color: item.color || '#FFFFFF',
-                      fontSize: Math.max(16, (item.fontSize || 64) / 3.0),
-                      fontFamily: item.fontFamily === 'Space Grotesk'
-                        ? "'Space Grotesk', sans-serif"
-                        : item.fontFamily === 'Montserrat'
-                          ? "'Montserrat', sans-serif"
-                          : `'${item.fontFamily || 'Inter'}', sans-serif`,
-                      fontWeight: 900,
-                      backgroundColor: item.backgroundColor || 'transparent',
-                      WebkitTextStroke: webkitStroke,
-                      paintOrder: 'stroke fill',
-                      letterSpacing: item.case === 'upper' ? '0.04em' : 0,
-                    }}
+                    className={`absolute inset-0 caption-anim-${item.animation || 'fade'}`}
                   >
-                    {words.map((w, wIdx) => {
-                      // "AI Stress Text Highlighter" — same word-splitting
-                      // convention render.py's _build_stress_caption_filters
-                      // uses (text.split(' ')), so the same indices mean the
-                      // same word in both preview and export. Falls back to
-                      // the older single-first-word `highlightColor` toggle
-                      // (still separately editable, untouched) for any word
-                      // that isn't a detected stress word.
-                      const isStress = item.stressWordIndices?.includes(wIdx)
-                      const isLegacyHighlight = !isStress && wIdx === 0 && item.highlightColor
-                      const hasStressBg = isStress && item.stressBackgroundColor != null
-                      const stressStrokeOn = isStress && (
-                        item.stressStrokeEnabled != null ? item.stressStrokeEnabled : strokeW > 0
-                      )
-                      return (
-                        <span
-                          key={wIdx}
-                          className={`${isLegacyHighlight ? 'rounded px-2 py-0.5 shadow-sm' : ''} ${isStress ? `stress-anim-${item.stressAnimation || 'none'}` : ''}`}
-                          style={{
-                            display: 'inline-block',
-                            marginRight: wIdx < words.length - 1 ? '0.25em' : 0,
-                            ...(isStress
-                              ? {
-                                color: item.stressColor || item.color || '#0F172A',
-                                backgroundColor: hasStressBg ? item.stressBackgroundColor : 'transparent',
-                                fontFamily: item.stressFontFamily
-                                  ? `'${item.stressFontFamily}', sans-serif`
-                                  : undefined,
-                                fontSize: item.stressFontSize ? Math.max(16, item.stressFontSize / 3.0) : undefined,
-                                fontWeight: item.stressFontWeight || undefined,
-                                fontStyle: item.stressFontStyle || 'normal',
-                                padding: hasStressBg ? `${(item.stressPadding ?? 12) / 6}px ${(item.stressPadding ?? 12) / 3}px` : 0,
-                                borderRadius: hasStressBg ? `${item.stressCornerRadius ?? 10}px` : 0,
-                                WebkitTextStroke: stressStrokeOn
-                                  ? `${Math.max(1, Math.round((item.stressStrokeWidth ?? strokeW ?? 2) / 2))}px ${item.stressStrokeColor || strokeColor}`
-                                  : 'none',
-                              }
-                              : {
-                                backgroundColor: isLegacyHighlight ? item.highlightColor : undefined,
-                                color: isLegacyHighlight ? '#0F172A' : undefined,
-                                WebkitTextStroke: isLegacyHighlight ? 'none' : undefined,
-                              }),
-                          }}
-                        >
-                          {w}
-                        </span>
-                      )
-                    })}
-                  </span>
+                    {layout.lines.map((line, li) => (
+                      <div key={li}>
+                        {line.background && (
+                          <span
+                            className="absolute rounded-xl"
+                            style={{
+                              left: line.background.x,
+                              top: line.background.y,
+                              width: line.background.width,
+                              height: line.background.height,
+                              backgroundColor: line.background.color,
+                            }}
+                          />
+                        )}
+                        {line.words.map((pw, wi) => {
+                          if (!pw.text) return null
+                          globalWordIdx += 1
+                          // "Legacy highlight" — the older single-first-
+                          // word highlightColor toggle that pre-dates AI
+                          // Stress Text Highlighter. render.py's FFmpeg
+                          // export has never rendered this (it isn't part
+                          // of the canonical layout at all — see
+                          // caption_layout.py's resolve_words()), so it
+                          // stays exactly what it always was: a
+                          // Preview-only decoration on word 0.
+                          const isLegacyHighlight = !pw.isStress && globalWordIdx === 0 && !!item.highlightColor
+                          const fontFamily = `${pw.cssFamily}, sans-serif`
+                          // strokeWidth comes from caption_layout.py's resolve_words() and
+                          // is the SAME value FFmpeg's `borderw=` uses — both stress and
+                          // non-stress words must use it as-is. The previous code halved
+                          // non-stress stroke (Math.round(strokeWidth / 2)), which made
+                          // Preview render a thinner stroke than the export produced.
+                          const strokeW = pw.strokeWidth || 0
+                          const textStyle = {
+                            position: 'absolute',
+                            left: pw.x,
+                            top: pw.y,
+                            fontSize: pw.fontSize,
+                            lineHeight: 1,
+                            fontFamily,
+                            // Weight/style are always 400/normal here —
+                            // the actual boldness/italic-ness comes from
+                            // WHICH FILE (pw.fontFile) was loaded under
+                            // this synthetic family name, not from a CSS
+                            // descriptor asking the browser to pick or
+                            // synthesize a different face.
+                            fontWeight: 400,
+                            fontStyle: 'normal',
+                            color: isLegacyHighlight ? '#0F172A' : pw.color,
+                            // letterSpacingPx is pre-computed server-side
+                            // (fontSize * 0.04 when item.case === 'upper')
+                            // so the wrap decision already accounted for
+                            // it — this is just rendering that same value.
+                            letterSpacing: pw.letterSpacingPx ? `${pw.letterSpacingPx}px` : 0,
+                            WebkitTextStroke: !isLegacyHighlight && strokeW > 0 ? `${strokeW}px ${pw.strokeColor || '#000000'}` : 'none',
+                            paintOrder: 'stroke fill',
+                            whiteSpace: 'pre',
+                          }
+                          if (!pw.isStress) {
+                            const bgColor = isLegacyHighlight ? item.highlightColor : pw.backgroundColor
+                            return (
+                              <span key={wi}>
+                                {bgColor && (
+                                  <span
+                                    className="absolute rounded"
+                                    style={{
+                                      left: pw.x - pw.padding,
+                                      top: pw.y - pw.padding,
+                                      width: pw.width + pw.padding * 2,
+                                      height: pw.ascent + pw.descent + pw.padding * 2,
+                                      backgroundColor: bgColor,
+                                    }}
+                                  />
+                                )}
+                                <span style={textStyle}>{pw.text}</span>
+                              </span>
+                            )
+                          }
+                          // Stress words: the background pill (if any) and
+                          // the text must animate together as ONE visual
+                          // unit (stress-anim-pop/pulse/glow scale/glow the
+                          // whole highlighted word), so both live inside a
+                          // shared wrapper that carries the animation class
+                          // — animating only one of the two would desync
+                          // them from each other.
+                          const hasBg = !!pw.backgroundColor
+                          const unitLeft = hasBg ? pw.x - pw.padding : pw.x
+                          const unitTop = hasBg ? pw.y - pw.padding : pw.y
+                          return (
+                            <span
+                              key={wi}
+                              className={`absolute rounded-md stress-anim-${item.stressAnimation || 'none'}`}
+                              style={{
+                                left: unitLeft,
+                                top: unitTop,
+                                width: hasBg ? pw.width + pw.padding * 2 : undefined,
+                                height: hasBg ? pw.ascent + pw.descent + pw.padding * 2 : undefined,
+                                backgroundColor: hasBg ? pw.backgroundColor : 'transparent',
+                                borderRadius: hasBg ? pw.cornerRadius : 0,
+                              }}
+                            >
+                              <span style={{ ...textStyle, position: 'absolute', left: hasBg ? pw.padding : 0, top: hasBg ? pw.padding : 0 }}>
+                                {pw.text}
+                              </span>
+                            </span>
+                          )
+                        })}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )
             })}
@@ -459,22 +604,32 @@ export default function VideoPreview() {
             {/* CTA pill overlays — mirrors render.py's drawtext box=1
                 pill rendering: same position slots as captions, same
                 icon-glyph-then-text layout. */}
-            {ctaItems.filter(activeAt).map((item) => (
+            {activeCtaItems.map((item) => (
               <div
                 key={item.id}
                 className={`absolute left-0 right-0 flex justify-center px-6 z-30 ${item.position === 'top'
-                    ? 'top-6'
-                    : item.position === 'center'
-                      ? 'top-[60%] -translate-y-1/2'
-                      : 'bottom-8'
+                  ? 'top-6'
+                  : item.position === 'center'
+                    ? 'top-[60%] -translate-y-1/2'
+                    : 'bottom-8'
                   }`}
               >
                 <span
-                  className="flex items-center gap-2 rounded-full px-4 py-2 text-center font-extrabold shadow-lg shadow-black/40"
+                  className="flex items-center gap-2 rounded-full px-4 py-2 text-center shadow-lg shadow-black/40"
                   style={{
                     color: item.color || '#FFFFFF',
                     backgroundColor: item.backgroundColor || '#7C3AED',
                     fontSize: Math.max(14, (item.fontSize || 42) / 3.0),
+                    // Same font render.py's CTA drawtext will use — see the
+                    // ctaFonts effect above. Weight/style are pinned to
+                    // 400/normal once the exact file has loaded, because
+                    // (as with caption words) the real boldness/italic-ness
+                    // comes from WHICH FILE was loaded, not a CSS
+                    // descriptor asking the browser to synthesize one.
+                    // Falls back to the raw family/weight until it loads.
+                    fontFamily: ctaFonts[item.id]?.cssFamily || item.fontFamily || 'Inter',
+                    fontWeight: ctaFonts[item.id] ? 400 : (item.fontWeight || 600),
+                    fontStyle: 'normal',
                   }}
                 >
                   {item.ctaIcon && CTA_ICON_GLYPHS[item.ctaIcon] && <span>{CTA_ICON_GLYPHS[item.ctaIcon]}</span>}

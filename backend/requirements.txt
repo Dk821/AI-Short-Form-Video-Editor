@@ -3,16 +3,30 @@ uvicorn[standard]==0.30.6
 python-multipart==0.0.9
 pydantic==2.9.2
 
-# HTTP client for the Groq Whisper transcription and Gemini auto-edit calls
+# Reads backend/.env in development. Was already imported by app/main.py
+# but never declared here, so a clean checkout could not start.
+python-dotenv==1.0.1
+
+# HTTP client for Groq Whisper transcription and Pexels calls
 requests==2.32.3
+
+# Real font-metric measurement (word width, ascent/descent) for the
+# canonical caption layout engine shared by the FFmpeg export and the
+# live preview's font-manifest — see backend/app/caption_layout.py.
+# Needs no extra system libraries; the wheel bundles its own FreeType.
+Pillow==11.0.0
+
+# Google GenAI SDK for Gemini auto-edit calls (the sole AI auto-edit provider).
+# Requires a GEMINI_API_KEY environment variable (free tier at
+# https://aistudio.google.com/apikey).
+google-genai>=1.0.0
 
 # Milestone 2 - word-level transcription via Groq's hosted Whisper API.
 # Requires a GROQ_API_KEY environment variable (free tier at
 # https://console.groq.com) and ffmpeg on PATH (already needed for rendering).
 
-# Milestone 3 - Gemini auto-edit calls.
-# Requires a GEMINI_API_KEY environment variable (free tier at
-# https://aistudio.google.com/apikey).
+# Milestone 3 - Gemini auto-edit calls via the Google GenAI SDK.
+# Requires GEMINI_API_KEY. Gemini is the sole AI provider; no fallback.
 
 # Milestone 3 B-roll - Pexels stock video search + download (best-effort;
 # auto-edit works without a PEXELS_API_KEY, B-roll just stays suggestions).
@@ -20,3 +34,5 @@ requests==2.32.3
 # Later milestone additions (see README Roadmap):
 # redis, celery        # real job queue instead of BackgroundTasks
 # boto3                # S3 / R2 object storage
+# Desktop packaging only (not needed to run the dev server).
+# Install with:  pip install -r requirements-build.txt

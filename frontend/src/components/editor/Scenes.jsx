@@ -27,7 +27,7 @@ export default function Scenes() {
     speakerItemsInRange, toggleZoomForScene, toggleSpeakerForScene,
     openBrollLibraryForScene, openSfxPickerForScene, openCtaPickerForScene,
     removeItem, updateItem, transcribeMain, isTranscribing, mainAsset,
-    runAutoEdit, isAutoEditing, autoEditError, removeAutoEditItems,
+    runAutoEdit, isAutoEditingBroll, isAutoEditingZoom, autoEditError, removeAutoEditItems,
   } = useEditorStore()
 
   const [openMenuKey, setOpenMenuKey] = useState(null) // `${sceneId}:${'broll'|'sfx'|'cta'|'add'}`
@@ -108,7 +108,7 @@ export default function Scenes() {
   // a manually placed zoom/b-roll (no `source` tag) is never touched, and
   // the OTHER track is left completely alone either way.
   async function regenerateMagicBroll() {
-    if (isAutoEditing) return
+    if (isAutoEditingBroll) return
     // Awaited — removeAutoEditItems' own save must land on the server
     // BEFORE the next /auto-edit call, or the backend applies the fresh
     // batch on top of a copy that still has the old items, stacking
@@ -118,7 +118,7 @@ export default function Scenes() {
     await runAutoEdit('broll')
   }
   async function regenerateMagicZoom() {
-    if (isAutoEditing) return
+    if (isAutoEditingZoom) return
     await removeAutoEditItems('zoom')
     await runAutoEdit('zoom')
   }
@@ -148,21 +148,21 @@ export default function Scenes() {
           <button
             type="button"
             onClick={regenerateMagicBroll}
-            disabled={isAutoEditing}
+            disabled={isAutoEditingBroll}
             title="Get a fresh set of AI b-rolls — zooms are left as they are"
             className="flex items-center justify-center gap-2 rounded-2xl border border-primary/40 bg-primary/15 px-3 py-3 text-xs font-extrabold text-primary transition hover:bg-primary/25 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {isAutoEditing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Film className="h-4 w-4" />}
+            {isAutoEditingBroll ? <Loader2 className="h-4 w-4 animate-spin" /> : <Film className="h-4 w-4" />}
             Magic B-rolls
           </button>
           <button
             type="button"
             onClick={regenerateMagicZoom}
-            disabled={isAutoEditing}
+            disabled={isAutoEditingZoom}
             title="Get a fresh set of AI zooms — b-rolls are left as they are"
             className="flex items-center justify-center gap-2 rounded-2xl border border-primary/40 bg-primary/15 px-3 py-3 text-xs font-extrabold text-primary transition hover:bg-primary/25 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {isAutoEditing ? <Loader2 className="h-4 w-4 animate-spin" /> : <ZoomIn className="h-4 w-4" />}
+            {isAutoEditingZoom ? <Loader2 className="h-4 w-4 animate-spin" /> : <ZoomIn className="h-4 w-4" />}
             Magic Zooms
           </button>
         </div>

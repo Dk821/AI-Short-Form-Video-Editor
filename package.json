@@ -1,0 +1,86 @@
+{
+  "name": "ai-video-editor",
+  "productName": "AI Video Editor",
+  "version": "1.0.0",
+  "description": "AI Short-Form Video Editor — desktop build",
+  "private": true,
+  "author": {
+    "name": "Clipforge"
+  },
+  "main": "electron/main.js",
+  "scripts": {
+    "frontend:install": "npm --prefix frontend install",
+    "frontend:build": "npm --prefix frontend run build",
+    "backend:install": "python -m pip install -r backend/requirements.txt -r backend/requirements-build.txt",
+    "fetch:ffmpeg": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-ffmpeg.ps1",
+    "build:backend": "pyinstaller backend/build.spec --noconfirm --distpath backend/dist --workpath backend/build",
+    "build:app": "npm run frontend:build && npm run build:backend",
+    "electron": "electron .",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "dev:backend": "python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000 --app-dir backend",
+    "dev:electron": "node scripts/dev-electron.js",
+    "dev": "concurrently -k -n backend,vite,electron -c blue,magenta,green \"npm:dev:backend\" \"npm:dev:frontend\" \"npm:dev:electron\"",
+    "dist": "npm run build:app && electron-builder --win",
+    "dist:dir": "npm run build:app && electron-builder --win --dir"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.clipforge.aivideoeditor",
+    "productName": "AI Video Editor",
+    "copyright": "Copyright © 2026 Clipforge",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json",
+      "!**/*.map"
+    ],
+    "extraResources": [
+      {
+        "from": "backend/dist/video-editor-backend",
+        "to": "backend"
+      },
+      {
+        "from": "frontend/dist",
+        "to": "frontend"
+      },
+      {
+        "from": "resources/ffmpeg",
+        "to": "ffmpeg",
+        "filter": ["**/*.exe", "**/*.dll", "LICENSE*", "README*"]
+      }
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "${productName} Setup ${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "AI Video Editor",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "uninstallDisplayName": "AI Video Editor",
+      "deleteAppDataOnUninstall": false,
+      "differentialPackage": false
+    }
+  }
+}

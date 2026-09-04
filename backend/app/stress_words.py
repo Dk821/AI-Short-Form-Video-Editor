@@ -2,7 +2,7 @@
 "AI Stress Text Highlighter" — detects the important/emphasis words in one
 caption line so Sidebar.jsx's boost card can style just those words.
 
-Deliberately offline/deterministic rather than a Gemini/OpenRouter call like
+Deliberately offline/deterministic rather than a Gemini API call like
 auto_edit.py's zoom/b-roll suggestions: captions are regenerated often (every
 transcript edit, every "Regenerate" click), and re-running an AI call on
 every one of those — with the network/API-key failure modes that come with

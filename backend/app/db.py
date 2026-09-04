@@ -12,8 +12,12 @@ import os
 import threading
 from typing import Any, Dict
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-DB_PATH = os.path.join(BASE_DIR, "app", "db.json")
+from . import paths
+
+# The packaged app installs into a read-only directory, so the database
+# lives with the rest of the user's data (see paths.py). A dev run still
+# uses backend/app/db.json.
+DB_PATH = str(paths.DB_PATH)
 
 _lock = threading.Lock()
 
@@ -21,13 +25,20 @@ _lock = threading.Lock()
 def _load() -> Dict[str, Any]:
     if not os.path.exists(DB_PATH):
         return {"projects": {}, "jobs": {}}
-    with open(DB_PATH, "r") as f:
+    with open(DB_PATH, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def _save(data: Dict[str, Any]) -> None:
-    with open(DB_PATH, "w") as f:
-        json.dump(data, f, indent=2)
+    # Write-then-rename: a crash or a power cut mid-write would otherwise
+    # leave a truncated db.json and lose every project. Explicit UTF-8
+    # because project names can contain any character the user typed and
+    # Windows' default cp1252 would raise on most of them.
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    tmp = DB_PATH + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, DB_PATH)
 
 
 def get_project(project_id: str):
@@ -60,8 +71,8 @@ def put_job(job_id: str, job: dict):
 
 
 def list_jobs():
-    """All job records. Used by the Shotstack webhook to map an incoming
-    render id back to the job this server started for it."""
+    """All job records — the local FFmpeg export queue (see
+    routers/export.py)."""
     with _lock:
         return list(_load()["jobs"].values())
 

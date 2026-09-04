@@ -3,11 +3,33 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .. import db
+from .. import caption_layout, db
 from ..caption_templates import CAPTION_TEMPLATES, generate_caption_items
+from ..models import TimelineItem
 from ..stress_words import detect_stress_word_indices
 
 router = APIRouter(prefix="/api", tags=["captions"])
+
+
+class CaptionLayoutBody(BaseModel):
+    item: TimelineItem
+    width: int
+    height: int
+
+
+@router.post("/captions/layout")
+def get_caption_layout(body: CaptionLayoutBody):
+    """THE canonical caption layout endpoint — see caption_layout.py's
+    module docstring. VideoPreview.jsx calls this instead of running any
+    wrapping/measurement of its own (Canvas measureText() and the old
+    hand-ported JS wrap loop are gone entirely): it POSTs the exact same
+    TimelineItem + canvas width/height render.py's _build_caption_filters
+    already computes a layout from, and renders the returned geometry
+    verbatim. One computation (Pillow/FreeType, real font-metric based),
+    consumed as-is by both renderers — not two independently-computed
+    layouts that merely happen to run the same algorithm."""
+    layout = caption_layout.layout_caption(body.item, body.width, body.height)
+    return caption_layout.serialize_layout(body.item, layout)
 
 
 @router.get("/caption-templates")
